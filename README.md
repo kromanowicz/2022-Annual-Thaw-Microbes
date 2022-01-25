@@ -1,9 +1,16 @@
 ## Repository: Romanowicz & Kling 2022 (Environmental Microbiology)
 ____________________________________________________________
 
-Romanowicz, KJ and Kling, GW. **(2022)** Annual thaw duration is a strong predictor of the soil microbiome and its response to permafrost thaw in arctic tundra. ***Environmental Microbiology*** ?(?): ?-?. [DOI]()
+Romanowicz, KJ and Kling, GW. *(In Review)* Annual thaw duration is a strong predictor of the soil microbiome and its response to permafrost thaw in arctic tundra.
 
-**Link to Rendered Code:** [TDB]()
+**Submitted to Peer Review:** *Environmental Microbiology* on 31 January 2022
+
+**Links to Rendered Code:** 
+
+[16S Analysis]()
+[Soil Chemistry]()
+[Hierarchical Clustering]()
+[Thaw Duration Correlation]()
 
 **NCBI BioProject:** [PRJNA794857](https://www.ncbi.nlm.nih.gov/bioproject/?term=PRJNA794857) for raw .fastq files
 
