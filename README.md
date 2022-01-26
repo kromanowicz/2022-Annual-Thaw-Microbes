@@ -7,13 +7,13 @@ Romanowicz, KJ and Kling, GW. Annual thaw duration is a strong predictor of the 
 
 **Links to Rendered Code:** 
 
-[16S Analysis]()
+[16S Analysis](https://rpubs.com/kjromano/EnvMicro22_16S_Analysis)
 
-[Soil Chemistry]()
+[Soil Chemistry](https://rpubs.com/kjromano/EnvMicro22_SOIL_Analysis)
 
-[Hierarchical Clustering]()
+[Hierarchical Clustering](https://rpubs.com/kjromano/EnvMicro22_CLUSTER_Analysis)
 
-[Thaw Duration Correlation]()
+[Thaw Duration Correlation](https://rpubs.com/kjromano/EnvMicro22_CORR_Analysis)
 
 **NCBI BioProject:** [PRJNA794857](https://www.ncbi.nlm.nih.gov/bioproject/?term=PRJNA794857) for raw .fastq files
 
