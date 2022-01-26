@@ -9,13 +9,13 @@ This repository is associated with the manuscript "*Annual thaw duration is a st
 
 **Links to Rendered Code:** 
 
-[16S Analysis](https://rpubs.com/kjromano/EnvMicro22_16S_Analysis)
+[16S Analysis](https://rpubs.com/kjromano/AnnualThaw_16S_Analysis)
 
-[Soil Chemistry](https://rpubs.com/kjromano/EnvMicro22_SOIL_Analysis)
+[Soil Chemistry](https://rpubs.com/kjromano/AnnualThaw_SOIL_Analysis)
 
-[Hierarchical Clustering](https://rpubs.com/kjromano/EnvMicro22_CLUSTER_Analysis)
+[Hierarchical Clustering](https://rpubs.com/kjromano/AnnualThaw_CLUSTER_Analysis)
 
-[Thaw Duration Correlation](https://rpubs.com/kjromano/EnvMicro22_CORR_Analysis)
+[Thaw Duration Correlation](https://rpubs.com/kjromano/AnnualThaw_CORR_Analysis)
 
 **NCBI BioProject:**
 
