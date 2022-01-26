@@ -1,9 +1,11 @@
-## Annual thaw duration is a strong predictor of the soil microbiome and its response to permafrost thaw in arctic tundra
-____________________________________________________________
+# Annual thaw duration is a strong predictor of the soil microbiome and its response to permafrost thaw in arctic tundra
 
-**Karl J. Romanowicz & George W. Kling** (*In Review*) Annual thaw duration is a strong predictor of the soil microbiome and its response to permafrost thaw in arctic tundra.
+### Karl J. Romanowicz & George W. Kling
 
-**Submitted to Peer Review:** *Environmental Microbiology* ***(In Review)***
+**Submitted to Peer Review:** *Environmental Microbiology* on Day-Month-Year
+_____________________________________
+
+This repository is associated with the manuscript "*Annual thaw duration is a strong predictor of the soil microbiome and its response to permafrost thaw in arctic tundra*" written by **Karl J. Romanowicz, and George W. Kling** at the University of Michigan. Links are provided to the original raw sequencing data stored in the Sequence Read Archive at NCBI. Data stored in this repository include all .oligos files for extracting sample data from barcoded sequencing runs, final output files generated from the QIIME2 bioinformatic pipeline and used in all downstream statistics, and the RMarkdown  document with rendered statistical code.
 
 **Links to Rendered Code:** 
 
