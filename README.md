@@ -5,9 +5,7 @@ Annual thaw duration is a strong predictor of the soil microbiome and its respon
 
 Karl J. Romanowicz & George W. Kling
 
-*(In Review)*
-
-**Submitted to Peer Review:** *Environmental Microbiology*
+**Submitted to Peer Review:** *Environmental Microbiology* ***(In Review)***
 
 **Links to Rendered Code:** 
 
