@@ -1,0 +1,1530 @@
+---
+title: "Microbial Response to Intermittent Permafrost Thaw -- 16S Analysis"
+author: 'Authors: [Karl J. Romanowicz](https://lsa.umich.edu/eeb/people/graduate-students/kjromano.html) and George W. Kling'
+output:
+  html_notebook:
+    theme: spacelab
+    toc: yes
+    toc_depth: 5
+    toc_float:
+      collapsed: yes
+      smooth_scroll: yes
+  html_document:
+    toc: yes
+    toc_depth: '5'
+    df_print: paged
+  pdf_document:
+    toc: yes
+    toc_depth: '5'
+---
+
+__________________________________________________
+
+**R Notebook:** <font color="green">Provides reproducible analysis for **16S rRNA** data in the following manuscript:</font>
+
+**Citation:** Romanowicz, KJ and Kling, GW. (*In Review*) Annual thaw duration is a strong predictor of the soil microbiome and its response to permafrost thaw in arctic tundra.
+
+**GitHub Repository:** [https://github.com/kromanowicz/2022-Annual-Thaw-Microbes](https://github.com/kromanowicz/2022-Annual-Thaw-Microbes)
+
+**NCBI BioProject:** [https://www.ncbi.nlm.nih.gov/bioproject/?term=PRJNA794857](https://www.ncbi.nlm.nih.gov/bioproject/?term=PRJNA794857)
+
+# Experiment
+
+This R Notebook provides complete reproducibility of the data analysis presented in ***"Annual thaw duration is a strong predictor of the soil microbiome and its response to permafrost thaw in arctic tundra"*** by Romanowicz and Kling. This pipeline processes 16S rRNA gene sequences that were generated using the Illumina MiSeq platform using paired-end sequencing read amplicons.
+
+```{r setup, include=FALSE}
+# Set global options for notebook
+knitr::opts_knit$set(root.dir = normalizePath("~/Desktop/TundraPro18"))
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r message=FALSE, results='hide', warning=FALSE}
+# Make a vector of required packages
+required.packages <- c("corrr","data.table","devtools","dplyr","forcats","ggalluvial","ggdendro","ggplot2","ggpubr","grid","gridExtra","knitr","magrittr","microeco","patchwork","pheatmap","pvclust","qiime2R","RColorBrewer","tidyr","UpSetR","vegan")
+
+# Load required packages
+lapply(required.packages, library, character.only = TRUE)
+```
+
+```{r include=FALSE}
+# set.seed is used to fix the random number generation to make the results repeatable
+set.seed(123)
+```
+
+# Qiime2R Import
+
+## Metadata
+Read in the Qiime2 Metadata file.
+```{r}
+metadata <- read_q2metadata("QIIME/qiime2R/tundra_profile_metadata.txt")
+rownames(metadata) <- as.character(metadata[, 1])
+head(metadata) # show top lines of metadata
+```
+
+```{r}
+itt.meta <- metadata [c(1:7), c(6-9)]
+shapiro.test(itt.meta$pH)
+shapiro.test(itt.meta$conductivity)
+shapiro.test(itt.meta$moisture)
+ggqqplot(itt.meta$pH)
+ggqqplot(itt.meta$conductivity)
+ggqqplot(itt.meta$moisture)
+#leveneTest(Hyp_Pro_Ratio ~ treat, data = data) 
+```
+
+## ASV Table
+
+Read in the Qiime2 ASV data table.
+```{r}
+ASV <- as.data.frame(read_qza("QIIME/qiime2R/table-dada2.qza")$data)
+```
+
+## Taxonomy Table
+
+Read in the Qiime2 Taxonomy table.
+```{r}
+# Read taxonomy table
+taxa_table <- read_qza("QIIME/qiime2R/rep-seqs-dada2-taxonomy-gg13.qza")
+taxa_table <- parse_taxonomy(taxa_table$data)
+```
+
+```{r}
+# Make the taxonomic table clean, this is very important.
+taxa_table %<>% tidy_taxonomy
+```
+
+## Microtable
+
+Create microtable of the imported Qiime2 data files.
+```{r}
+dataset <- microtable$new(sample_table = metadata, tax_table = taxa_table, otu_table = ASV)#, phylo_tree = phylo_tree)
+dataset
+```
+
+Make sure that the data types of sample_table, otu_table and tax_table are all data.frame as the following part shows.
+
+```{r}
+class(ASV)
+ASV[1:5, 1:5]
+```
+ 	
+```{r}
+class(taxa_table)
+taxa_table[1:5, 1:3]
+```
+
+```{r}
+class(metadata)
+metadata[1:5, ]
+```
+
+```{r}
+class(dataset)
+print(dataset)
+```
+
+To make the species and sample information consistent across different files in the dataset object, we can use function tidy_dataset() to trim the dataset.
+```{r}
+dataset$tidy_dataset()
+print(dataset)
+```
+
+Remove ASVs which are not assigned in the Kingdom "Archaea" or "Bacteria".
+```{r}
+dataset$tax_table %<>% base::subset(Kingdom == "k__Archaea" | Kingdom == "k__Bacteria")
+print(dataset)
+```
+
+```{r}
+# Remove the lines containing the taxa word regardless of taxonomic ranks and ignoring word case in the tax_table.
+dataset$filter_pollution(taxa = c("mitochondria", "chloroplast"))
+print(dataset)
+```
+
+To make the ASVs same in otu_table and tax_table, we use tidy_dataset() again.
+```{r}
+dataset$tidy_dataset()
+print(dataset)
+```
+
+Then we use sample_sums() to check the sequence numbers in each sample.
+```{r}
+dataset$sample_sums() %>% range
+dataset$sample_sums() %>% mean
+```
+
+## Rarefaction
+
+Sometimes, in order to reduce the effects of species number on the diversity measurements, we need to perform the resampling to make the sequence number equal for each sample. The function rarefy_samples can invoke the function tidy_dataset automatically before and after the rarefying.
+```{r}
+# As an example, we use 10000 sequences in each sample
+dataset$rarefy_samples(sample.size = 50487)
+dataset$sample_sums() %>% range
+```
+
+Use tidy_dataset() again
+```{r}
+dataset$tidy_dataset()
+print(dataset)
+```
+
+```{r echo=FALSE, eval=FALSE}
+# Save the rarefied ASV table
+write.csv(dataset$otu_table,"QIIME/R_Results/ASV.rarefied.csv", row.names = TRUE)
+```
+
+Then, we calculate the taxa abundance at each taxonomic rank using cal_abund(). This function return a list called taxa_abund containing several data frames of the abundance information at each taxonomic rank. The list is stored in the microtable object automatically.
+```{r}
+dataset$cal_abund()
+# return dataset$taxa_abund
+class(dataset$taxa_abund)
+```
+
+```{r echo=FALSE, eval=FALSE}
+# Save abundance data locally
+#dir.create("QIIME/R_Results/taxa_abund")
+dataset$save_abund(dirpath = "QIIME/R_Results/taxa_abund")
+```
+
+Then, we calculate the alpha diversity. The result is also stored in the object microtable automatically. As an example, we do not calculate phylogenetic diversity.
+```{r}
+# If you want to add Faith's phylogenetic diversity, use PD = TRUE, this will be a little slow
+dataset$cal_alphadiv(PD = FALSE)
+# return dataset$alpha_diversity
+class(dataset$alpha_diversity)
+```
+
+```{r echo=FALSE, eval=FALSE}
+# save dataset$alpha_diversity to a directory
+#dir.create("QIIME/R_Results/alpha_diversity")
+dataset$save_alphadiv(dirpath = "QIIME/R_Results/alpha_diversity")
+```
+
+We also calculate the distance matrix of beta diversity using function cal_betadiv(). We provide four most frequently used indexes: Bray-curtis, Jaccard, weighted Unifrac and unweighted unifrac.
+```{r}
+# If you do not want to calculate unifrac metrics, use unifrac = FALSE
+# Requires GUniFrac package
+dataset$cal_betadiv(unifrac = FALSE)
+
+# return dataset$beta_diversity
+class(dataset$beta_diversity)
+```
+
+```{r echo=FALSE, eval=FALSE}
+# save dataset$beta_diversity to a directory
+#dir.create("QIIME/R_Results/beta_diversity")
+dataset$save_betadiv(dirpath = "QIIME/R_Results/beta_diversity")
+```
+
+## Full Dataset
+
+Clone a copy of the dataset before manipulating.
+```{r}
+# Clone the full dataset
+dataset.full <- clone(dataset)
+print(dataset.full)
+```
+
+# Microeco R Package
+
+## Essential Analyses
+
+### trans_venn class
+
+The trans_venn class is used for venn analysis. To analyze the unique and shared OTUs of groups, we first merge samples according to the “Group” column of sample_table.
+```{r}
+# merge samples as one community for each group
+dataset1 <- dataset.full$merge_samples(use_group = "site")
+# dataset1 is a new microtable object
+# create trans_venn object
+t1 <- trans_venn$new(dataset1, ratio = "seqratio")
+t1.plot.venn<-t1$plot_venn()
+# The integer data is OTU number
+# The percentage data is the sequence number/total sequence number
+
+t1.plot.venn
+
+#Export as .png (width:650, height:650; "venn.site.ASV.png")
+
+# merge samples as one community for each group
+dataset2 <- dataset.full$merge_samples(use_group = "tundra")
+# dataset1 is a new microtable object
+# create trans_venn object
+t2 <- trans_venn$new(dataset2, ratio = "seqratio")
+t2.plot.venn<-t2$plot_venn()
+# The integer data is OTU number
+# The percentage data is the sequence number/total sequence number
+
+t2.plot.venn
+
+#Export as .png (width:650, height:650; "venn.site.ASV.png")
+
+#When the groups are too many to show with venn plot, we can use petal plot.
+# Use "Type" column in sample_table
+dataset3 <- dataset.full$merge_samples(use_group = "site_tundra")
+t3 <- trans_venn$new(dataset3)
+t3.plot.venn.petal<-t3$plot_venn(petal_plot = TRUE)
+
+t3.plot.venn.petal
+
+#Export as .png (width:1000, height:1000; "venn.petal.site.tundra.ASV.png")
+```
+
+#### Beta Bray NMDS
+
+Re-run the Beta Diversity metrics using NMDS ordination on the Bray-Curtis distance.
+```{r}
+# we first create an object and select NMDS for ordination
+t1 <- trans_beta$new(dataset = dataset.full, group = "site_tundra", measure = "bray")
+
+# Use NMDS as an example, PCA is also available
+t1$cal_ordination(ordination = "NMDS")
+
+# t1$res_ordination is the ordination result list
+class(t1$res_ordination)
+```
+
+```{r}
+# plot the NMDS result
+t1.plot.bray.nmds.site.tundra<-t1$plot_ordination(plot_color = "site_tundra", plot_shape = "site_tundra", plot_group_ellipse = FALSE) + theme_classic() #+ theme(legend.position="bottom") + theme(legend.title = element_blank())
+
+t1.plot.bray.nmds.site.tundra
+
+#Export as .png (width:800, height:700; "beta.nmds.site.tundra.png")
+
+#For x- and y-coordinates, use:
+#head(t1.plot.bray.nmds.site.tundra)
+```
+
+Then we plot and compare the group distances.
+```{r}
+# calculate and plot sample distances within groups
+t1$cal_group_distance()
+# return t1$res_group_distance
+t1.plot.bray.anova <- t1$plot_group_distance(distance_pair_stat = TRUE)
+
+t1.plot.bray.anova
+
+#Export as .png (width:800, height:700; "boxplot.beta.bray.anova.site.tundra.png")
+```
+
+## Additional Analyses
+
+### trans_abund class
+
+This class is used to transform taxonomic abundance data for plotting the taxa abundance with the ggplot2 package. We first use this class for the bar plot.
+```{r}
+# create trans_abund object using 12 Phyla with the highest abundance in the dataset
+t1 <- trans_abund$new(dataset = dataset.full, taxrank = "Phylum", ntaxa = 12)
+```
+
+We remove the sample names in x axis and add the facet to show abundance according to groups.
+```{r}
+# Place sites in order for plotting
+t1$sample_table$site_tundra <- factor(t1$sample_table$site_tundra, levels = c("TTT","ITT","STT","TWS","IWS","SWS"))
+
+# return a ggplot2 object
+t1.plot.bar.v1.depths<-t1$plot_bar(facet = "site_tundra", xtext_type_hor = FALSE, xtext_size = 6) + facet_wrap(~site_tundra, scale="free_x", ncol=3) + theme_classic() + theme(axis.text.x = element_text(size = 6, angle = 45, hjust = 1)) #+ theme(legend.position="bottom")
+
+t1.plot.bar.v1.depths
+
+#Export as .png (width:1000, height:800; "barplot.site.tundra.depth.png")
+```
+
+Then alluvial plot is implemented in the plot_bar function.
+```{r}
+t1 <- trans_abund$new(dataset = dataset.full, taxrank = "Phylum", ntaxa = 12)
+
+# Place sites in order for plotting
+t1$sample_table$site_tundra <- factor(t1$sample_table$site_tundra, levels = c("TTT","ITT","STT","TWS","IWS","SWS"))
+
+# use_alluvium = TRUE make the alluvial plot, clustering = TRUE can be used to reorder the samples by clustering
+t1.plot.bar.v3.alluvium<-t1$plot_bar(facet = "site_tundra", use_alluvium = TRUE, clustering = FALSE, xtext_type_hor = FALSE, xtext_size = 6) + facet_wrap(~site_tundra, scale="free_x", ncol=3) + theme_classic() + theme_classic() + theme(axis.text.x = element_text(size = 6, angle = 45, hjust = 1))
+
+t1.plot.bar.v3.alluvium
+
+#Export as .png (width:1000, height:800; "barplot.site.tundra.depth.alluvium.png")
+```
+
+### trans_alpha class
+
+Alpha diversity can be transformed and plotted using trans_alpha class. Creating trans_alpha object can return two data frame: alpha_data and alpha_stat.
+```{r}
+t1 <- trans_alpha$new(dataset = dataset.full, group = "site_tundra")
+
+# return t1$alpha_stat
+t1$alpha_stat[1:5, ]
+```
+
+Then, we test the differences among groups using anova with multiple comparisons.
+```{r}
+t1$cal_diff(method = "anova")
+# return t1$res_alpha_diff
+t1$res_alpha_diff
+```
+
+Now, let us plot the mean and se of alpha diversity for each group, and add the duncan.test (agricolae package) result.
+```{r}
+t1.plot.alpha.chao1 <- t1$plot_alpha(add_letter = TRUE, measure = "Chao1")
+
+t1.plot.alpha.chao1
+
+#Export as .png (width:800, height:600; "dotplot.alpha.chao1.site.tundra.png")
+```
+
+We can also use the boxplot to show the paired comparisons directly.
+```{r}
+t1.plot.alpha.chao1.compare <- t1$plot_alpha(pair_compare = TRUE, measure = "Chao1")
+
+t1.plot.alpha.chao1.compare
+
+#Export as .png (width:800, height:600; "boxplot.alpha.chao1.site.tundra.png")
+```
+
+### trans_beta class
+
+The distance matrix of beta diversity can be transformed and plotted using trans_beta class. The analysis referred to the beta diversity in this class mainly include ordination, group distance, clustering and manova. We first show the ordination using PCoA.
+```{r}
+# we first create an object and select PCoA for ordination
+t1 <- trans_beta$new(dataset = dataset.full, group = "site_tundra", measure = "bray")
+
+# Use PCoA 
+t1$cal_ordination(ordination = "PCoA")
+
+# t1$res_ordination is the ordination result list
+class(t1$res_ordination)
+```
+
+#### Beta Bray PCoA
+
+```{r}
+# plot the PCoA result by site
+t1.plot.bray.pcoa.site<-t1$plot_ordination(plot_color = "site", plot_shape = "site", plot_group_ellipse = TRUE) + theme_classic()
+
+t1.plot.bray.pcoa.site
+
+#Export as .png (width:800, height:700; "beta.bray.pcoa.site.png")
+```
+
+```{r}
+# plot the PCoA result by site_tundra
+t1.plot.bray.pcoa.site.tundra<-t1$plot_ordination(plot_color = "site_tundra", plot_shape = "site_tundra", plot_group_ellipse = TRUE) + theme_classic() #+ theme(legend.title = element_blank()) + theme(legend.position="bottom")
+
+t1.plot.bray.pcoa.site.tundra
+
+#Export as .png (width:800, height:700; "beta.pcoa.site.tundra.png")
+```
+
+Then we plot and compare the group distances.
+```{r}
+# calculate and plot sample distances within groups
+t1$cal_group_distance()
+# return t1$res_group_distance
+t1.plot.bray.anova <- t1$plot_group_distance(distance_pair_stat = TRUE)
+
+t1.plot.bray.anova
+
+#Export as .png (width:800, height:700; "boxplot.beta.bray.anova.site.tundra.png")
+```
+
+Clustering plot is also a frequently used method.
+```{r}
+# use replace_name to set the label name, group parameter used to set the color
+t1.plot.bray.clustering <- t1$plot_clustering(group = "tundra")
+
+t1.plot.bray.clustering
+
+#Export as .png (width:600, height:800; "clustering.beta.bray.site.tundra.png")
+```
+
+# Vegan Package
+
+## Import Data
+
+Import the rarefied ASV table
+```{r echo=FALSE}
+# Load in the rarefied ASV file from the microeco analysis
+asv.rare<-read.csv("QIIME/R_Data/asv.rarefied.csv")
+```
+
+```{r}
+# Transpose data
+asv.rare<-t(asv.rare)
+
+# Convert first row into column names
+colnames(asv.rare) <- asv.rare[1,]
+asv.rare <- asv.rare[-1, ]
+
+# Make dataframe
+asv.rare <- as.data.frame(asv.rare)
+
+# Convert character columns to numeric
+asv.rare[] <- lapply(asv.rare, function(x) as.numeric(as.character(x)))
+```
+
+Import the alpha diversity metrics
+```{r echo=FALSE}
+# Load in the alpha diversity metrics from the microeco analysis
+asv.alpha <- read.csv("QIIME/R_Data/alpha.csv")
+```
+
+```{r}
+# Convert first column to row names
+rownames(asv.alpha)<-asv.alpha[,1]
+asv.alpha<-asv.alpha[,-1]
+
+# Make dataframe
+asv.alpha <- as.data.frame(asv.alpha)
+```
+
+Import the metadata metrics
+```{r echo=FALSE}
+# Load in the environmental metadata (qualitative and quantitative data)
+asv.env <- read.csv("QIIME/R_Data/metadata.csv")
+```
+
+```{r}
+# Convert first column to row names
+rownames(asv.env)<-asv.env[,1]
+asv.env<-asv.env[,-1]
+
+# Make dataframe
+asv.env <- as.data.frame(asv.env)
+```
+
+## Statistics
+
+### Alpha Div Stats
+
+ASV Upset Plot
+```{r echo=FALSE}
+# Import ASV data summarized by sampling site
+asv.upset <- read.csv("QIIME/R_Data/asv.site.rarefied.csv")
+```
+
+```{r}
+# Convert to presence/absence values (1, 0)
+asv.upset[asv.upset>0] <-1
+
+# Relabel columns
+colnames(asv.upset) = c("ASV","Imnavait -- MAT","Imnavait -- WS","Sagwon -- MAT","Sagwon -- WS","Toolik -- MAT","Toolik -- WS")
+
+# Generate upset plot
+asv.upset.plot <- upset(asv.upset, sets = c("Sagwon -- WS", "Sagwon -- MAT", "Toolik -- WS", "Imnavait -- WS", "Toolik -- MAT","Imnavait -- MAT"), nintersects = 13, mb.ratio = c(0.55, 0.45), order.by = "freq", keep.order = TRUE, number.angles = 30, point.size = 3.5, line.size = 2, mainbar.y.label = "Site Intersections", sets.x.label = "ASVs Per Site", text.scale = c(1.3, 1.3, 1, 1, 1.5, 1))
+
+asv.upset.plot  # Save as .eps file; width=750, height=600 ("asv.upset.eps")
+```
+
+ASV Chao1 Diversity
+```{r}
+# Alpha diversity for Site x Tundra Interactions - Chao1 Diversity
+chao.asv<-aov(Chao1~Site*Tundra, data=asv.alpha)
+summary.aov(chao.asv)
+```
+
+```{r}
+# Chao1 post-hoc analysis
+TukeyHSD(chao.asv)
+```
+
+ASV Shannon Diversity
+```{r}
+# Alpha diversity for Site x Tundra Interactions - Shannon Diversity
+shannon.asv<-aov(Shannon~Site*Tundra, data=asv.alpha)
+summary.aov(shannon.asv)
+```
+
+```{r}
+# Shannon post-hoc analysis
+TukeyHSD(shannon.asv)
+```
+
+### Beta Div Stats
+
+ASV Beta diversity (Bray-Curtis)
+```{r}
+#Create Bray-Curtis distance matrix for ASV community
+asv.bc.dist <- vegdist(asv.rare, method = "bray", binary = FALSE)
+```
+
+PERMANOVA - Site effects on ASV beta diversity
+```{r}
+adonis.asv.bc.dist <- adonis2(asv.bc.dist~Site*Tundra, data = asv.env)
+adonis.asv.bc.dist
+```
+
+NMDS Ordination
+```{r eval=FALSE, echo=FALSE}
+# NMDS Ordination for ASVs
+ord1<-metaMDS(asv.rare, trymax=1000, k=3)
+```
+
+```{r eval=FALSE, echo=FALSE}
+ord1
+```
+
+```{r eval=FALSE, echo=FALSE}
+scores(ord1)
+```
+
+```{r eval=FALSE, echo=FALSE}
+stressplot(ord1)
+```
+
+```{r eval=FALSE, echo=FALSE}
+# Data for plotting
+asv.NMDS.data<-asv.env
+asv.NMDS.data$NMDS1<-ord1$points[ ,1]
+asv.NMDS.data$NMDS2<-ord1$points[ ,2]
+
+# R2 Superscript for plot
+asv.ss<-0.964
+asv.ss<-paste("R^2 == ", round(asv.ss,2))
+```
+
+```{r eval=FALSE, echo=FALSE}
+# Set geom_point shape to new default prior to plotting
+update_geom_defaults("point", list(shape=21))
+
+# Plotting bacteria NMDS in ggplot2
+asv.ggplot<-ggplot(asv.NMDS.data, aes(x=NMDS1, y=NMDS2)) + aes(shape=factor(Site)) + geom_point(colour="black", size=5, aes(fill=factor(Tundra))) + scale_fill_manual(values=c("white", "darkgrey")) + scale_shape_manual("Site", values=c(21,22,24)) + scale_colour_manual(values=c("black", "black")) + labs(fill="Tundra") + theme_bw() + scale_x_continuous(limits=c(-3, 2.5)) + scale_y_continuous(limits=c(-2, 3)) + theme(legend.key=element_blank()) + theme(axis.ticks.y = element_blank(), axis.ticks.x = element_blank(), panel.background = element_blank(), panel.grid.major = element_blank(), panel.grid.minor = element_blank()) + annotate("text", x=1.5, y=2.9, label=asv.ss, parse=TRUE, hjust=0, size=4) + annotate("text", x=1.5, y=2.5, label="Stress=0.07", hjust=0, size=4)
+
+asv.ggplot
+```
+
+Plotting NMDS Ordination from microeco results
+```{r echo=FALSE}
+# Load in microeco NMDS axes
+microeco.nmds <- read.csv("QIIME/R_Data/microeco.nmds.csv")
+```
+
+```{r}
+# Plotting bacteria NMDS in ggplot2
+asv.ggplot2<-ggplot(microeco.nmds, aes(x=NMDS1, y=NMDS2)) + aes(shape=factor(Site)) + geom_point(colour="black", size=5, aes(fill=factor(Tundra))) + scale_fill_manual(values=c("white", "darkgrey")) + scale_shape_manual("Site", values=c(21,22,24)) + labs(fill="Tundra") + theme_bw() + scale_x_continuous(limits=c(-0.6, 0.4)) + scale_y_continuous(limits=c(-0.6, 0.4)) + theme(legend.key=element_blank()) + theme(axis.ticks.y = element_blank(), axis.ticks.x = element_blank(), axis.text.x = element_text(size = 12), axis.text.y = element_text(size = 12), panel.background = element_blank(), axis.title.x = element_text(size = 14), axis.title.y = element_text(size = 14), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), legend.text = element_text(size=12), legend.title = element_text(size=14))
+
+asv.ggplot2
+
+#+ scale_colour_manual(values=c("black", "black"))
+
+#Export as .png (width:800, height:700; "NMDS.ASV.png")
+```
+
+```{r}
+# Plotting bacteria NMDS in ggplot2
+asv.ggplot3<-ggplot(microeco.nmds, aes(x=NMDS1, y=NMDS2)) + aes(shape=factor(Tundra)) + geom_point(size=5, aes(fill=factor(Site))) + scale_shape_manual("Tundra", values=c(21,24)) + labs(fill="Site") + theme_bw() + scale_x_continuous(limits=c(-0.6, 0.4)) + scale_y_continuous(limits=c(-0.6, 0.4)) + theme(legend.key=element_blank()) + theme(axis.ticks.y = element_blank(), axis.ticks.x = element_blank(), axis.text.x = element_text(size = 14), axis.text.y = element_text(size = 14), panel.background = element_blank(), axis.title.x = element_text(size = 16), axis.title.y = element_text(size = 16), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), legend.text = element_text(size=14), legend.title = element_text(size=16), panel.border = element_rect(colour = "black", fill=NA, size=2))
+
+asv.ggplot3
+
+#Export as .png (width:800, height:700; "NMDS.ASV.png")
+```
+
+# Taxonomy
+
+## Taxa Plotting
+
+### Toolik MAT
+
+Toolik MAT Plotting
+```{r echo=FALSE}
+# Import TTT Phylum dataset
+ttt.phylum <- read.csv("QIIME/R_Data/ttt.phylum.2.csv")
+```
+
+```{r}
+# Place taxa in order for plotting
+ttt.phylum$Phylum <- factor(ttt.phylum$Phylum,levels = c("Acidobacteria","Actinobacteria","Bacteroidetes","Caldiserica","Chlorobi","Chloroflexi","Firmicutes","Nitrospirae","Planctomycetes","Alphaproteobacteria","Betaproteobacteria","Deltaproteobacteria","Gammaproteobacteria","Verrucomicrobia","Bacteria_Other","Archaea"))
+
+#"Armatimonadetes","Gemmatimonadetes",
+
+ttt.phylum$Phylum<-fct_rev(ttt.phylum$Phylum)
+
+ttt.phylum$Depth<-factor(ttt.phylum$Depth,levels = c("80-90","70-80","60-70","50-60","40-50","30-40","20-30","10-20","0-10"))
+
+colourCount = length(unique(ttt.phylum$Phylum))
+getPalette = colorRampPalette(brewer.pal(12, "Paired"))
+
+ttt.phylum.plot<-ggplot(ttt.phylum, aes(fill=Phylum, y=Value, x=Depth)) + geom_bar(position = "stack", stat="identity", color=NA) + coord_flip() + labs(title = "Toolik Moist Acidic Tussock") + xlab(expression(atop("", paste("Soil Depth (cm)")))) + ylab(" ") + theme_minimal() + theme(axis.line = element_line(colour = 'black', size = 1), axis.ticks = element_line(colour = "black", size = 2), plot.title = element_text(size = 18, hjust = 0.5), axis.text.x = element_text(size = 14), axis.text.y = element_text(size = 14), panel.background = element_blank(), axis.title.x = element_text(size = 16), axis.title.y = element_text(size = 16), panel.grid.major = element_blank(), panel.grid.minor = element_blank()) + theme(legend.position = "none") + scale_fill_manual(values = rev(getPalette(colourCount))) + scale_y_continuous(expand = c(0, 0), limits = c(0, 102))
+```
+
+```{r}
+ttt.phylum.plot
+
+# Save as .png width=650, height=650 ("ttt.phyla.png")
+```
+
+### Toolik WS
+
+Toolik WS Plotting
+```{r echo=FALSE}
+# Import TTT Phylum dataset
+tws.phylum <- read.csv("QIIME/R_Data/tws.phylum.2.csv")
+```
+
+```{r}
+# Place taxa in order for plotting
+tws.phylum$Phylum <- factor(tws.phylum$Phylum,levels = c("Acidobacteria","Actinobacteria","Bacteroidetes","Caldiserica","Chlorobi","Chloroflexi","Firmicutes","Nitrospirae","Planctomycetes","Alphaproteobacteria","Betaproteobacteria","Deltaproteobacteria","Gammaproteobacteria","Verrucomicrobia","Bacteria_Other","Archaea"))
+
+#"Armatimonadetes","Gemmatimonadetes",
+
+tws.phylum$Phylum<-fct_rev(tws.phylum$Phylum)
+
+tws.phylum$Depth<-factor(tws.phylum$Depth,levels = c("80-90","70-80","60-70","50-60","40-50","30-40","20-30","10-20","0-10"))
+
+colourCount = length(unique(tws.phylum$Phylum))
+getPalette = colorRampPalette(brewer.pal(12, "Paired"))
+
+tws.phylum.plot<-ggplot(tws.phylum, aes(fill=Phylum, y=Value, x=Depth)) + geom_bar(position = "stack", stat="identity", color=NA) + coord_flip() + labs(title = "Toolik Wet Sedge") + xlab(expression(atop("", paste("Soil Depth (cm)")))) + ylab("Relative Abundance (%)") + theme_minimal() + theme(axis.line = element_line(colour = 'black', size = 1), axis.ticks = element_line(colour = "black", size = 2), plot.title = element_text(size = 18, hjust = 0.5), axis.text.x = element_text(size = 14), axis.text.y = element_text(size = 14), panel.background = element_blank(), axis.title.x = element_text(size = 16), axis.title.y = element_text(size = 16), panel.grid.major = element_blank(), panel.grid.minor = element_blank()) + theme(legend.position = "none") + scale_fill_manual(values = rev(getPalette(colourCount))) + scale_y_continuous(expand = c(0, 0), limits = c(0, 102))
+```
+
+```{r}
+tws.phylum.plot
+
+# Save as .png width=650, height=650 ("tws.phyla.png")
+```
+
+### Imnavait MAT
+
+Imnavait MAT Plotting
+```{r echo=FALSE}
+# Import TTT Phylum dataset
+itt.phylum <- read.csv("QIIME/R_Data/itt.phylum.2.csv")
+```
+
+```{r}
+# Place taxa in order for plotting
+itt.phylum$Phylum <- factor(itt.phylum$Phylum,levels = c("Acidobacteria","Actinobacteria","Bacteroidetes","Caldiserica","Chlorobi","Chloroflexi","Firmicutes","Nitrospirae","Planctomycetes","Alphaproteobacteria","Betaproteobacteria","Deltaproteobacteria","Gammaproteobacteria","Verrucomicrobia","Bacteria_Other","Archaea"))
+
+#"Armatimonadetes","Gemmatimonadetes",
+
+itt.phylum$Phylum<-fct_rev(itt.phylum$Phylum)
+
+itt.phylum$Depth<-factor(itt.phylum$Depth,levels = c("60-70","50-60","40-50","30-40","20-30","10-20","0-10"))
+
+colourCount = length(unique(itt.phylum$Phylum))
+getPalette = colorRampPalette(brewer.pal(12, "Paired"))
+
+itt.phylum.plot<-ggplot(itt.phylum, aes(fill=Phylum, y=Value, x=Depth)) + geom_bar(position = "stack", stat="identity", color=NA) + coord_flip() + labs(title = "Imnavait Moist Acidic Tussock") + xlab(expression(atop("", paste(" ")))) + ylab(" ") + theme_minimal() + theme(axis.line = element_line(colour = 'black', size = 1), axis.ticks = element_line(colour = "black", size = 2), plot.title = element_text(size = 18, hjust = 0.5), axis.text.x = element_text(size = 14), axis.text.y = element_text(size = 14), panel.background = element_blank(), axis.title.x = element_text(size = 16), axis.title.y = element_text(size = 16), panel.grid.major = element_blank(), panel.grid.minor = element_blank()) + theme(legend.position = "none") + scale_fill_manual(values = rev(getPalette(colourCount))) + scale_y_continuous(expand = c(0, 0), limits = c(0, 102))
+```
+
+```{r}
+itt.phylum.plot
+
+# Save as .png width=650, height=650 ("itt.phyla.png")
+```
+
+### Imnavait WS
+
+Imnavait WS Plotting
+```{r echo=FALSE}
+# Import IWS Phylum dataset
+iws.phylum <- read.csv("QIIME/R_Data/iws.phylum.2.csv")
+```
+
+```{r}
+# Place taxa in order for plotting
+iws.phylum$Phylum <- factor(iws.phylum$Phylum,levels = c("Acidobacteria","Actinobacteria","Bacteroidetes","Caldiserica","Chlorobi","Chloroflexi","Firmicutes","Nitrospirae","Planctomycetes","Alphaproteobacteria","Betaproteobacteria","Deltaproteobacteria","Gammaproteobacteria","Verrucomicrobia","Bacteria_Other","Archaea"))
+
+#"Armatimonadetes","Gemmatimonadetes",
+
+iws.phylum$Phylum<-fct_rev(iws.phylum$Phylum)
+
+iws.phylum$Depth<-factor(iws.phylum$Depth,levels = c("90-100", "80-90","70-80","60-70","50-60","40-50","30-40","20-30","10-20","0-10"))
+
+colourCount = length(unique(iws.phylum$Phylum))
+getPalette = colorRampPalette(brewer.pal(12, "Paired"))
+
+iws.phylum.plot<-ggplot(iws.phylum, aes(fill=Phylum, y=Value, x=Depth)) + geom_bar(position = "stack", stat="identity", color=NA) + coord_flip() + labs(title = "Imnavait Wet Sedge") + xlab(expression(atop("", paste(" ")))) + ylab("Relative Abundance (%)") + theme_minimal() + theme(axis.line = element_line(colour = 'black', size = 1), axis.ticks = element_line(colour = "black", size = 2), plot.title = element_text(size = 18, hjust = 0.5), axis.text.x = element_text(size = 14), axis.text.y = element_text(size = 14), panel.background = element_blank(), axis.title.x = element_text(size = 16), axis.title.y = element_text(size = 16), panel.grid.major = element_blank(), panel.grid.minor = element_blank()) + scale_fill_manual(values = rev(getPalette(colourCount))) + scale_y_continuous(expand = c(0, 0), limits = c(0, 102)) + theme(legend.text = element_text(size=14), legend.title = element_text(size=16), legend.position = "bottom") + guides(fill = guide_legend(reverse = TRUE))
+```
+
+```{r}
+iws.phylum.plot
+
+# Save as .png width=650, height=650 ("iws.phyla.png")
+```
+
+### Sagwon MAT
+
+Sagwon MAT Plotting
+```{r echo=FALSE}
+# Import TTT Phylum dataset
+stt.phylum <- read.csv("QIIME/R_Data/stt.phylum.2.csv")
+```
+
+```{r}
+# Place taxa in order for plotting
+stt.phylum$Phylum <- factor(stt.phylum$Phylum,levels = c("Acidobacteria","Actinobacteria","Bacteroidetes","Caldiserica","Chlorobi","Chloroflexi","Firmicutes","Nitrospirae","Planctomycetes","Alphaproteobacteria","Betaproteobacteria","Deltaproteobacteria","Gammaproteobacteria","Verrucomicrobia","Bacteria_Other","Archaea"))
+
+#"Armatimonadetes","Gemmatimonadetes",
+
+stt.phylum$Phylum<-fct_rev(stt.phylum$Phylum)
+
+stt.phylum$Depth<-factor(stt.phylum$Depth,levels = c("80-90","70-80","60-70","50-60","40-50","30-40","20-30","10-20","0-10"))
+
+colourCount = length(unique(stt.phylum$Phylum))
+getPalette = colorRampPalette(brewer.pal(12, "Paired"))
+
+stt.phylum.plot<-ggplot(stt.phylum, aes(fill=Phylum, y=Value, x=Depth)) + geom_bar(position = "stack", stat="identity", color=NA) + coord_flip() + labs(title = "Sagwon Moist Acidic Tussock") + xlab(expression(atop("", paste(" ")))) + ylab(" ") + theme_minimal() + theme(axis.line = element_line(colour = 'black', size = 1), axis.ticks = element_line(colour = "black", size = 2), plot.title = element_text(size = 18, hjust = 0.5), axis.text.x = element_text(size = 14), axis.text.y = element_text(size = 14), panel.background = element_blank(), axis.title.x = element_text(size = 16), axis.title.y = element_text(size = 16), panel.grid.major = element_blank(), panel.grid.minor = element_blank()) + theme(legend.position = "none") + scale_fill_manual(values = rev(getPalette(colourCount))) + scale_y_continuous(expand = c(0, 0), limits = c(0, 102))
+```
+
+```{r}
+stt.phylum.plot
+
+# Save as .png width=650, height=650 ("stt.phyla.png")
+```
+
+### Sagwon WS
+
+Sagwon WS Plotting
+```{r echo=FALSE}
+# Import SWS Phylum dataset
+sws.phylum <- read.csv("QIIME/R_Data/sws.phylum.2.csv")
+```
+
+```{r}
+# Place taxa in order for plotting
+sws.phylum$Phylum <- factor(sws.phylum$Phylum,levels = c("Acidobacteria","Actinobacteria","Bacteroidetes","Caldiserica","Chlorobi","Chloroflexi","Firmicutes","Nitrospirae","Planctomycetes","Alphaproteobacteria","Betaproteobacteria","Deltaproteobacteria","Gammaproteobacteria","Verrucomicrobia","Bacteria_Other","Archaea"))
+
+#"Armatimonadetes","Gemmatimonadetes",
+
+sws.phylum$Phylum<-fct_rev(sws.phylum$Phylum)
+
+sws.phylum$Depth<-factor(sws.phylum$Depth,levels = c("60-70","50-60","40-50","30-40","20-30","10-20","0-10"))
+
+colourCount = length(unique(sws.phylum$Phylum))
+getPalette = colorRampPalette(brewer.pal(12, "Paired"))
+
+sws.phylum.plot<-ggplot(sws.phylum, aes(fill=Phylum, y=Value, x=Depth)) + geom_bar(position = "stack", stat="identity", color=NA) + coord_flip() +labs(title = "Sagwon Wet Sedge") + xlab(expression(atop("", paste(" ")))) + ylab("Relative Abundance (%)") + theme_minimal() + theme(axis.line = element_line(colour = 'black', size = 1), axis.ticks = element_line(colour = "black", size = 2), plot.title = element_text(size = 18, hjust = 0.5), axis.text.x = element_text(size = 14), axis.text.y = element_text(size = 14), panel.background = element_blank(), axis.title.x = element_text(size = 16), axis.title.y = element_text(size = 16), panel.grid.major = element_blank(), panel.grid.minor = element_blank()) + scale_fill_manual(values = rev(getPalette(colourCount)), guide = guide_legend(reverse = TRUE)) + scale_y_continuous(expand = c(0, 0), limits = c(0, 102)) + theme(legend.position = "none")
+```
+
+```{r}
+sws.phylum.plot
+
+# Save as .png width=900, height=650 ("sws.phyla.png")
+```
+
+Save the taxonomy stackplots together
+```{r eval=FALSE, echo=FALSE}
+taxonomy.plot <- ((ttt.phylum.plot | itt.phylum.plot | stt.phylum.plot) / (tws.phylum.plot | iws.phylum.plot | sws.phylum.plot)) #+ plot_annotation(tag_levels = "A") & theme(plot.tag = element_text(size = 20))
+taxonomy.plot
+
+# Save as .eps image (width = 1600, height = 1200; "taxonomy.eps")
+```
+
+Import the taxonomy relative abundance at the phylum-class level
+```{r echo=FALSE}
+asv.taxa <- read.csv("QIIME/R_Data/taxa.csv")
+```
+
+```{r}
+# Convert first column to row names
+rownames(asv.taxa)<-asv.taxa[,1]
+asv.taxa<-asv.taxa[,-1]
+
+# Make dataframe
+asv.taxa <- as.data.frame(asv.taxa)
+```
+
+## Taxa ANOVA
+
+### Toolik MAT
+
+Dominant Taxa (Order-Level) by Soil Layer -- TTT -- UPDATED
+```{r echo=FALSE}
+aov.ttt.data<-read.csv("QIIME/R_Data/aov.ttt.taxa.UPDATED.csv")
+```
+
+```{r}
+# Taxa ANOVA with Post-Hoc for Soil Layer Differences
+
+#Acidobacteriales
+ttt.taxa1<-aov(Acidobacteriales~Layer, data=aov.ttt.data)
+#summary(ttt.taxa1)
+TukeyHSD(ttt.taxa1)
+
+#Chloracidobacteria
+ttt.taxa2<-aov(Chloracidobacteria~Layer, data=aov.ttt.data)
+#summary(ttt.taxa2)
+TukeyHSD(ttt.taxa2)
+
+#Solibacterales
+ttt.taxa3<-aov(Solibacterales~Layer, data=aov.ttt.data)
+#summary(ttt.taxa3)
+TukeyHSD(ttt.taxa3)
+
+#Rhizobiales
+ttt.taxa4<-aov(Rhizobiales~Layer, data=aov.ttt.data)
+#summary(ttt.taxa4)
+TukeyHSD(ttt.taxa4)
+
+#Rhodospirillales
+ttt.taxa5<-aov(Rhodospirillales~Layer, data=aov.ttt.data)
+#summary(ttt.taxa5)
+TukeyHSD(ttt.taxa5)
+
+#Burkholderiales
+ttt.taxa6<-aov(Burkholderiales~Layer, data=aov.ttt.data)
+#summary(ttt.taxa6)
+TukeyHSD(ttt.taxa6)
+
+#Desulfuromonadales
+ttt.taxa7<-aov(Desulfuromonadales~Layer, data=aov.ttt.data)
+#summary(ttt.taxa7)
+TukeyHSD(ttt.taxa7)
+
+#Myxococcales
+ttt.taxa8<-aov(Myxococcales~Layer, data=aov.ttt.data)
+#summary(ttt.taxa8)
+TukeyHSD(ttt.taxa8)
+
+#Syntrophobacterales
+ttt.taxa9<-aov(Syntrophobacterales~Layer, data=aov.ttt.data)
+#summary(ttt.taxa9)
+TukeyHSD(ttt.taxa9)
+
+#Xanthomonadales
+ttt.taxa10<-aov(Xanthomonadales~Layer, data=aov.ttt.data)
+#summary(ttt.taxa10)
+TukeyHSD(ttt.taxa10)
+
+#Nitrospirales
+ttt.taxa11<-aov(Nitrospirales~Layer, data=aov.ttt.data)
+#summary(ttt.taxa11)
+TukeyHSD(ttt.taxa11)
+
+#Pedosphaerales
+ttt.taxa12<-aov(Pedosphaerales~Layer, data=aov.ttt.data)
+#summary(ttt.taxa12)
+TukeyHSD(ttt.taxa12)
+
+#Chthoniobacterales
+ttt.taxa13<-aov(Chthoniobacterales~Layer, data=aov.ttt.data)
+#summary(ttt.taxa13)
+TukeyHSD(ttt.taxa13)
+
+#Opitutales
+ttt.taxa14<-aov(Opitutales~Layer, data=aov.ttt.data)
+#summary(ttt.taxa14)
+TukeyHSD(ttt.taxa14)
+
+#Actinomycetales
+ttt.taxa15<-aov(Actinomycetales~Layer, data=aov.ttt.data)
+#summary(ttt.taxa15)
+TukeyHSD(ttt.taxa15)
+
+#Gaiellales
+ttt.taxa16<-aov(Gaiellales~Layer, data=aov.ttt.data)
+#summary(ttt.taxa16)
+TukeyHSD(ttt.taxa16)
+
+#Solirubrobacterales
+ttt.taxa17<-aov(Solirubrobacterales~Layer, data=aov.ttt.data)
+#summary(ttt.taxa17)
+TukeyHSD(ttt.taxa17)
+
+#Saprospirales
+ttt.taxa18<-aov(Saprospirales~Layer, data=aov.ttt.data)
+#summary(ttt.taxa18)
+TukeyHSD(ttt.taxa18)
+
+#Bacteroidales
+ttt.taxa19<-aov(Bacteroidales~Layer, data=aov.ttt.data)
+#summary(ttt.taxa19)
+TukeyHSD(ttt.taxa19)
+
+#WCHB1.03
+ttt.taxa20<-aov(WCHB1.03~Layer, data=aov.ttt.data)
+#summary(ttt.taxa20)
+TukeyHSD(ttt.taxa20)
+
+#Clostridiales
+ttt.taxa21<-aov(Clostridiales~Layer, data=aov.ttt.data)
+#summary(ttt.taxa21)
+TukeyHSD(ttt.taxa21)
+```
+
+### Toolik WS
+
+ANOVA -- Dominant Taxa (Order-Level) by Soil Layer -- TWS -- UPDATED
+```{r echo=FALSE}
+aov.tws.data<-read.csv("QIIME/R_Data/aov.tws.taxa.UPDATED.csv")
+```
+
+```{r}
+# Taxa ANOVA with Post-Hoc for Soil Layer Differences
+
+#Acidobacteriales
+tws.taxa1<-aov(Acidobacteriales~Layer, data=aov.tws.data)
+#summary(tws.taxa1)
+TukeyHSD(tws.taxa1)
+
+#Chloracidobacteria
+tws.taxa2<-aov(Chloracidobacteria~Layer, data=aov.tws.data)
+#summary(tws.taxa2)
+TukeyHSD(tws.taxa2)
+
+#Solibacterales
+tws.taxa3<-aov(Solibacterales~Layer, data=aov.tws.data)
+#summary(tws.taxa3)
+TukeyHSD(tws.taxa3)
+
+#Rhizobiales
+tws.taxa4<-aov(Rhizobiales~Layer, data=aov.tws.data)
+#summary(tws.taxa4)
+TukeyHSD(tws.taxa4)
+
+#Rhodospirillales
+tws.taxa5<-aov(Rhodospirillales~Layer, data=aov.tws.data)
+#summary(tws.taxa5)
+TukeyHSD(tws.taxa5)
+
+#Burkholderiales
+tws.taxa6<-aov(Burkholderiales~Layer, data=aov.tws.data)
+#summary(tws.taxa6)
+TukeyHSD(tws.taxa6)
+
+#Desulfuromonadales
+tws.taxa7<-aov(Desulfuromonadales~Layer, data=aov.tws.data)
+#summary(tws.taxa7)
+TukeyHSD(tws.taxa7)
+
+#Myxococcales
+tws.taxa8<-aov(Myxococcales~Layer, data=aov.tws.data)
+#summary(tws.taxa8)
+TukeyHSD(tws.taxa8)
+
+#Syntrophobacterales
+tws.taxa9<-aov(Syntrophobacterales~Layer, data=aov.tws.data)
+#summary(tws.taxa9)
+TukeyHSD(tws.taxa9)
+
+#Xanthomonadales
+tws.taxa10<-aov(Xanthomonadales~Layer, data=aov.tws.data)
+#summary(tws.taxa10)
+TukeyHSD(tws.taxa10)
+
+#Nitrospirales
+tws.taxa11<-aov(Nitrospirales~Layer, data=aov.tws.data)
+#summary(tws.taxa11)
+TukeyHSD(tws.taxa11)
+
+#Pedosphaerales
+tws.taxa12<-aov(Pedosphaerales~Layer, data=aov.tws.data)
+#summary(tws.taxa12)
+TukeyHSD(tws.taxa12)
+
+#Chthoniobacterales
+tws.taxa13<-aov(Chthoniobacterales~Layer, data=aov.tws.data)
+#summary(tws.taxa13)
+TukeyHSD(tws.taxa13)
+
+#Opitutales
+tws.taxa14<-aov(Opitutales~Layer, data=aov.tws.data)
+#summary(tws.taxa14)
+TukeyHSD(tws.taxa14)
+
+#Actinomycetales
+tws.taxa15<-aov(Actinomycetales~Layer, data=aov.tws.data)
+#summary(tws.taxa15)
+TukeyHSD(tws.taxa15)
+
+#Gaiellales
+tws.taxa16<-aov(Gaiellales~Layer, data=aov.tws.data)
+#summary(tws.taxa16)
+TukeyHSD(tws.taxa16)
+
+#Solirubrobacterales
+tws.taxa17<-aov(Solirubrobacterales~Layer, data=aov.tws.data)
+#summary(tws.taxa17)
+TukeyHSD(tws.taxa17)
+
+#Saprospirales
+tws.taxa18<-aov(Saprospirales~Layer, data=aov.tws.data)
+#summary(tws.taxa18)
+TukeyHSD(tws.taxa18)
+
+#Bacteroidales
+tws.taxa19<-aov(Bacteroidales~Layer, data=aov.tws.data)
+#summary(tws.taxa19)
+TukeyHSD(tws.taxa19)
+
+#WCHB1.03
+tws.taxa20<-aov(WCHB1.03~Layer, data=aov.tws.data)
+#summary(tws.taxa20)
+TukeyHSD(tws.taxa20)
+
+#Clostridiales
+tws.taxa21<-aov(Clostridiales~Layer, data=aov.tws.data)
+#summary(tws.taxa21)
+TukeyHSD(tws.taxa21)
+```
+
+### Imnavait MAT
+
+ANOVA -- Dominant Taxa (Order-Level) by Soil Layer -- ITT -- UPDATED
+```{r echo=FALSE}
+aov.itt.data<-read.csv("QIIME/R_Data/aov.itt.taxa.UPDATED.csv")
+```
+
+```{r}
+# Taxa ANOVA with Post-Hoc for Soil Layer Differences
+
+#Acidobacteriales
+itt.taxa1<-aov(Acidobacteriales~Layer, data=aov.itt.data)
+#summary(itt.taxa1)
+TukeyHSD(itt.taxa1)
+
+#Chloracidobacteria
+itt.taxa2<-aov(Chloracidobacteria~Layer, data=aov.itt.data)
+#summary(itt.taxa2)
+TukeyHSD(itt.taxa2)
+
+#Solibacterales
+itt.taxa3<-aov(Solibacterales~Layer, data=aov.itt.data)
+#summary(itt.taxa3)
+TukeyHSD(itt.taxa3)
+
+#Rhizobiales
+itt.taxa4<-aov(Rhizobiales~Layer, data=aov.itt.data)
+#summary(itt.taxa4)
+TukeyHSD(itt.taxa4)
+
+#Rhodospirillales
+itt.taxa5<-aov(Rhodospirillales~Layer, data=aov.itt.data)
+#summary(itt.taxa5)
+TukeyHSD(itt.taxa5)
+
+#Burkholderiales
+itt.taxa6<-aov(Burkholderiales~Layer, data=aov.itt.data)
+#summary(itt.taxa6)
+TukeyHSD(itt.taxa6)
+
+#Desulfuromonadales
+itt.taxa7<-aov(Desulfuromonadales~Layer, data=aov.itt.data)
+#summary(itt.taxa7)
+TukeyHSD(itt.taxa7)
+
+#Myxococcales
+itt.taxa8<-aov(Myxococcales~Layer, data=aov.itt.data)
+#summary(itt.taxa8)
+TukeyHSD(itt.taxa8)
+
+#Syntrophobacterales
+itt.taxa9<-aov(Syntrophobacterales~Layer, data=aov.itt.data)
+#summary(itt.taxa9)
+TukeyHSD(itt.taxa9)
+
+#Xanthomonadales
+itt.taxa10<-aov(Xanthomonadales~Layer, data=aov.itt.data)
+#summary(itt.taxa10)
+TukeyHSD(itt.taxa10)
+
+#Nitrospirales
+itt.taxa11<-aov(Nitrospirales~Layer, data=aov.itt.data)
+#summary(itt.taxa11)
+TukeyHSD(itt.taxa11)
+
+#Pedosphaerales
+itt.taxa12<-aov(Pedosphaerales~Layer, data=aov.itt.data)
+#summary(itt.taxa12)
+TukeyHSD(itt.taxa12)
+
+#Chthoniobacterales
+itt.taxa13<-aov(Chthoniobacterales~Layer, data=aov.itt.data)
+#summary(itt.taxa13)
+TukeyHSD(itt.taxa13)
+
+#Opitutales
+itt.taxa14<-aov(Opitutales~Layer, data=aov.itt.data)
+#summary(itt.taxa14)
+TukeyHSD(itt.taxa14)
+
+#Actinomycetales
+itt.taxa15<-aov(Actinomycetales~Layer, data=aov.itt.data)
+#summary(itt.taxa15)
+TukeyHSD(itt.taxa15)
+
+#Gaiellales
+itt.taxa16<-aov(Gaiellales~Layer, data=aov.itt.data)
+#summary(itt.taxa16)
+TukeyHSD(itt.taxa16)
+
+#Solirubrobacterales
+itt.taxa17<-aov(Solirubrobacterales~Layer, data=aov.itt.data)
+#summary(itt.taxa17)
+TukeyHSD(itt.taxa17)
+
+#Saprospirales
+itt.taxa18<-aov(Saprospirales~Layer, data=aov.itt.data)
+#summary(itt.taxa18)
+TukeyHSD(itt.taxa18)
+
+#Bacteroidales
+itt.taxa19<-aov(Bacteroidales~Layer, data=aov.itt.data)
+#summary(itt.taxa19)
+TukeyHSD(itt.taxa19)
+
+#WCHB1.03
+itt.taxa20<-aov(WCHB1.03~Layer, data=aov.itt.data)
+#summary(itt.taxa20)
+TukeyHSD(itt.taxa20)
+
+#Clostridiales
+itt.taxa21<-aov(Clostridiales~Layer, data=aov.itt.data)
+#summary(itt.taxa21)
+TukeyHSD(itt.taxa21)
+```
+
+### Imnavait WS
+
+ANOVA -- Dominant Taxa (Order-Level) by Soil Layer -- IWS -- UPDATED
+```{r echo=FALSE}
+aov.iws.data<-read.csv("QIIME/R_Data/aov.iws.taxa.UPDATED.csv")
+```
+
+```{r}
+# Taxa ANOVA with Post-Hoc for Soil Layer Differences
+
+#Acidobacteriales
+iws.taxa1<-aov(Acidobacteriales~Layer, data=aov.iws.data)
+#summary(iws.taxa1)
+TukeyHSD(iws.taxa1)
+
+#Chloracidobacteria
+iws.taxa2<-aov(Chloracidobacteria~Layer, data=aov.iws.data)
+#summary(iws.taxa2)
+TukeyHSD(iws.taxa2)
+
+#Solibacterales
+iws.taxa3<-aov(Solibacterales~Layer, data=aov.iws.data)
+#summary(iws.taxa3)
+TukeyHSD(iws.taxa3)
+
+#Rhizobiales
+iws.taxa4<-aov(Rhizobiales~Layer, data=aov.iws.data)
+#summary(iws.taxa4)
+TukeyHSD(iws.taxa4)
+
+#Rhodospirillales
+iws.taxa5<-aov(Rhodospirillales~Layer, data=aov.iws.data)
+#summary(iws.taxa5)
+TukeyHSD(iws.taxa5)
+
+#Burkholderiales
+iws.taxa6<-aov(Burkholderiales~Layer, data=aov.iws.data)
+#summary(iws.taxa6)
+TukeyHSD(iws.taxa6)
+
+#Desulfuromonadales
+iws.taxa7<-aov(Desulfuromonadales~Layer, data=aov.iws.data)
+#summary(iws.taxa7)
+TukeyHSD(iws.taxa7)
+
+#Myxococcales
+iws.taxa8<-aov(Myxococcales~Layer, data=aov.iws.data)
+#summary(iws.taxa8)
+TukeyHSD(iws.taxa8)
+
+#Syntrophobacterales
+iws.taxa9<-aov(Syntrophobacterales~Layer, data=aov.iws.data)
+#summary(iws.taxa9)
+TukeyHSD(iws.taxa9)
+
+#Xanthomonadales
+iws.taxa10<-aov(Xanthomonadales~Layer, data=aov.iws.data)
+#summary(iws.taxa10)
+TukeyHSD(iws.taxa10)
+
+#Nitrospirales
+iws.taxa11<-aov(Nitrospirales~Layer, data=aov.iws.data)
+#summary(iws.taxa11)
+TukeyHSD(iws.taxa11)
+
+#Pedosphaerales
+iws.taxa12<-aov(Pedosphaerales~Layer, data=aov.iws.data)
+#summary(iws.taxa12)
+TukeyHSD(iws.taxa12)
+
+#Chthoniobacterales
+iws.taxa13<-aov(Chthoniobacterales~Layer, data=aov.iws.data)
+#summary(iws.taxa13)
+TukeyHSD(iws.taxa13)
+
+#Opitutales
+iws.taxa14<-aov(Opitutales~Layer, data=aov.iws.data)
+#summary(iws.taxa14)
+TukeyHSD(iws.taxa14)
+
+#Actinomycetales
+iws.taxa15<-aov(Actinomycetales~Layer, data=aov.iws.data)
+#summary(iws.taxa15)
+TukeyHSD(iws.taxa15)
+
+#Gaiellales
+iws.taxa16<-aov(Gaiellales~Layer, data=aov.iws.data)
+#summary(iws.taxa16)
+TukeyHSD(iws.taxa16)
+
+#Solirubrobacterales
+iws.taxa17<-aov(Solirubrobacterales~Layer, data=aov.iws.data)
+#summary(iws.taxa17)
+TukeyHSD(iws.taxa17)
+
+#Saprospirales
+iws.taxa18<-aov(Saprospirales~Layer, data=aov.iws.data)
+#summary(iws.taxa18)
+TukeyHSD(iws.taxa18)
+
+#Bacteroidales
+iws.taxa19<-aov(Bacteroidales~Layer, data=aov.iws.data)
+#summary(iws.taxa19)
+TukeyHSD(iws.taxa19)
+
+#WCHB1.03
+iws.taxa20<-aov(WCHB1.03~Layer, data=aov.iws.data)
+#summary(iws.taxa20)
+TukeyHSD(iws.taxa20)
+
+#Clostridiales
+iws.taxa21<-aov(Clostridiales~Layer, data=aov.iws.data)
+#summary(iws.taxa21)
+TukeyHSD(iws.taxa21)
+```
+
+### Sagwon MAT
+
+ANOVA -- Dominant Taxa (Order-Level) by Soil Layer -- STT -- UPDATED
+```{r echo=FALSE}
+aov.stt.data<-read.csv("QIIME/R_Data/aov.stt.taxa.UPDATED.csv")
+```
+
+```{r}
+# Taxa ANOVA with Post-Hoc for Soil Layer Differences
+
+#Acidobacteriales
+stt.taxa1<-aov(Acidobacteriales~Layer, data=aov.stt.data)
+#summary(stt.taxa1)
+TukeyHSD(stt.taxa1)
+
+#Chloracidobacteria
+stt.taxa2<-aov(Chloracidobacteria~Layer, data=aov.stt.data)
+#summary(stt.taxa2)
+TukeyHSD(stt.taxa2)
+
+#Solibacterales
+stt.taxa3<-aov(Solibacterales~Layer, data=aov.stt.data)
+#summary(stt.taxa3)
+TukeyHSD(stt.taxa3)
+
+#Rhizobiales
+stt.taxa4<-aov(Rhizobiales~Layer, data=aov.stt.data)
+#summary(stt.taxa4)
+TukeyHSD(stt.taxa4)
+
+#Rhodospirillales
+stt.taxa5<-aov(Rhodospirillales~Layer, data=aov.stt.data)
+#summary(stt.taxa5)
+TukeyHSD(stt.taxa5)
+
+#Burkholderiales
+stt.taxa6<-aov(Burkholderiales~Layer, data=aov.stt.data)
+#summary(stt.taxa6)
+TukeyHSD(stt.taxa6)
+
+#Desulfuromonadales
+stt.taxa7<-aov(Desulfuromonadales~Layer, data=aov.stt.data)
+#summary(stt.taxa7)
+TukeyHSD(stt.taxa7)
+
+#Myxococcales
+stt.taxa8<-aov(Myxococcales~Layer, data=aov.stt.data)
+#summary(stt.taxa8)
+TukeyHSD(stt.taxa8)
+
+#Syntrophobacterales
+stt.taxa9<-aov(Syntrophobacterales~Layer, data=aov.stt.data)
+#summary(stt.taxa9)
+TukeyHSD(stt.taxa9)
+
+#Xanthomonadales
+stt.taxa10<-aov(Xanthomonadales~Layer, data=aov.stt.data)
+#summary(stt.taxa10)
+TukeyHSD(stt.taxa10)
+
+#Nitrospirales
+stt.taxa11<-aov(Nitrospirales~Layer, data=aov.stt.data)
+#summary(stt.taxa11)
+TukeyHSD(stt.taxa11)
+
+#Pedosphaerales
+stt.taxa12<-aov(Pedosphaerales~Layer, data=aov.stt.data)
+#summary(stt.taxa12)
+TukeyHSD(stt.taxa12)
+
+#Chthoniobacterales
+stt.taxa13<-aov(Chthoniobacterales~Layer, data=aov.stt.data)
+#summary(stt.taxa13)
+TukeyHSD(stt.taxa13)
+
+#Opitutales
+stt.taxa14<-aov(Opitutales~Layer, data=aov.stt.data)
+#summary(stt.taxa14)
+TukeyHSD(stt.taxa14)
+
+#Actinomycetales
+stt.taxa15<-aov(Actinomycetales~Layer, data=aov.stt.data)
+#summary(stt.taxa15)
+TukeyHSD(stt.taxa15)
+
+#Gaiellales
+stt.taxa16<-aov(Gaiellales~Layer, data=aov.stt.data)
+#summary(stt.taxa16)
+TukeyHSD(stt.taxa16)
+
+#Solirubrobacterales
+stt.taxa17<-aov(Solirubrobacterales~Layer, data=aov.stt.data)
+#summary(stt.taxa17)
+TukeyHSD(stt.taxa17)
+
+#Saprospirales
+stt.taxa18<-aov(Saprospirales~Layer, data=aov.stt.data)
+#summary(stt.taxa18)
+TukeyHSD(stt.taxa18)
+
+#Bacteroidales
+stt.taxa19<-aov(Bacteroidales~Layer, data=aov.stt.data)
+#summary(stt.taxa19)
+TukeyHSD(stt.taxa19)
+
+#WCHB1.03
+stt.taxa20<-aov(WCHB1.03~Layer, data=aov.stt.data)
+#summary(stt.taxa20)
+TukeyHSD(stt.taxa20)
+
+#Clostridiales
+stt.taxa21<-aov(Clostridiales~Layer, data=aov.stt.data)
+#summary(stt.taxa21)
+TukeyHSD(stt.taxa21)
+```
+
+### Sagwon WS
+
+ANOVA -- Dominant Taxa (Order-Level) by Soil Layer -- SWS -- UPDATED
+```{r echo=FALSE}
+aov.sws.data<-read.csv("QIIME/R_Data/aov.sws.taxa.UPDATED.csv")
+```
+
+```{r}
+# Taxa ANOVA with Post-Hoc for Soil Layer Differences
+
+#Acidobacteriales
+sws.taxa1<-aov(Acidobacteriales~Layer, data=aov.sws.data)
+#summary(sws.taxa1)
+TukeyHSD(sws.taxa1)
+
+#Chloracidobacteria
+sws.taxa2<-aov(Chloracidobacteria~Layer, data=aov.sws.data)
+#summary(sws.taxa2)
+TukeyHSD(sws.taxa2)
+
+#Solibacterales
+sws.taxa3<-aov(Solibacterales~Layer, data=aov.sws.data)
+#summary(sws.taxa3)
+TukeyHSD(sws.taxa3)
+
+#Rhizobiales
+sws.taxa4<-aov(Rhizobiales~Layer, data=aov.sws.data)
+#summary(sws.taxa4)
+TukeyHSD(sws.taxa4)
+
+#Rhodospirillales
+sws.taxa5<-aov(Rhodospirillales~Layer, data=aov.sws.data)
+#summary(sws.taxa5)
+TukeyHSD(sws.taxa5)
+
+#Burkholderiales
+sws.taxa6<-aov(Burkholderiales~Layer, data=aov.sws.data)
+#summary(sws.taxa6)
+TukeyHSD(sws.taxa6)
+
+#Desulfuromonadales
+sws.taxa7<-aov(Desulfuromonadales~Layer, data=aov.sws.data)
+#summary(sws.taxa7)
+TukeyHSD(sws.taxa7)
+
+#Myxococcales
+sws.taxa8<-aov(Myxococcales~Layer, data=aov.sws.data)
+#summary(sws.taxa8)
+TukeyHSD(sws.taxa8)
+
+#Syntrophobacterales
+sws.taxa9<-aov(Syntrophobacterales~Layer, data=aov.sws.data)
+#summary(sws.taxa9)
+TukeyHSD(sws.taxa9)
+
+#Xanthomonadales
+sws.taxa10<-aov(Xanthomonadales~Layer, data=aov.sws.data)
+#summary(sws.taxa10)
+TukeyHSD(sws.taxa10)
+
+#Nitrospirales
+sws.taxa11<-aov(Nitrospirales~Layer, data=aov.sws.data)
+#summary(sws.taxa11)
+TukeyHSD(sws.taxa11)
+
+#Pedosphaerales
+sws.taxa12<-aov(Pedosphaerales~Layer, data=aov.sws.data)
+#summary(sws.taxa12)
+TukeyHSD(sws.taxa12)
+
+#Chthoniobacterales
+sws.taxa13<-aov(Chthoniobacterales~Layer, data=aov.sws.data)
+#summary(sws.taxa13)
+TukeyHSD(sws.taxa13)
+
+#Opitutales
+sws.taxa14<-aov(Opitutales~Layer, data=aov.sws.data)
+#summary(sws.taxa14)
+TukeyHSD(sws.taxa14)
+
+#Actinomycetales
+sws.taxa15<-aov(Actinomycetales~Layer, data=aov.sws.data)
+#summary(sws.taxa15)
+TukeyHSD(sws.taxa15)
+
+#Gaiellales
+sws.taxa16<-aov(Gaiellales~Layer, data=aov.sws.data)
+#summary(sws.taxa16)
+TukeyHSD(sws.taxa16)
+
+#Solirubrobacterales
+sws.taxa17<-aov(Solirubrobacterales~Layer, data=aov.sws.data)
+#summary(sws.taxa17)
+TukeyHSD(sws.taxa17)
+
+#Saprospirales
+sws.taxa18<-aov(Saprospirales~Layer, data=aov.sws.data)
+#summary(sws.taxa18)
+TukeyHSD(sws.taxa18)
+
+#Bacteroidales
+sws.taxa19<-aov(Bacteroidales~Layer, data=aov.sws.data)
+#summary(sws.taxa19)
+TukeyHSD(sws.taxa19)
+
+#WCHB1.03
+sws.taxa20<-aov(WCHB1.03~Layer, data=aov.sws.data)
+#summary(sws.taxa20)
+TukeyHSD(sws.taxa20)
+
+#Clostridiales
+sws.taxa21<-aov(Clostridiales~Layer, data=aov.sws.data)
+#summary(sws.taxa21)
+TukeyHSD(sws.taxa21)
+```
+
+# Reproducibility
+
+The session information is provided for full reproducibility.
+```{r}
+devtools::session_info()
+```
