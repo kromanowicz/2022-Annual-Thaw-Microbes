@@ -1,6 +1,6 @@
 ## Annual Thaw Duration is a Strong Predictor of the Soil Microbiome and its Response to Permafrost Thaw in Arctic Tundra
 
-### Karl J. Romanowicz & George W. Kling
+### [Karl J. Romanowicz](https://lsa.umich.edu/eeb/people/graduate-students/kjromano.html) & George W. Kling
 
 **Submitted to Peer Review:** *Environmental Microbiology* on Day-Month-Year
 _____________________________________
