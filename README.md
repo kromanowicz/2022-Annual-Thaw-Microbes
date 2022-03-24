@@ -1,11 +1,11 @@
-## Annual Thaw Duration is a Strong Predictor of the Soil Microbiome and its Response to Permafrost Thaw in Arctic Tundra
+## Summer Thaw Duration is a Strong Predictor of the Soil Microbiome and its Response to Permafrost Thaw in Arctic Tundra
 
 ### [Karl J. Romanowicz](https://lsa.umich.edu/eeb/people/graduate-students/kjromano.html) & George W. Kling
 
 **Peer Review:** Submitted on 
 _____________________________________
 
-This repository is associated with the manuscript "*Annual thaw duration is a strong predictor of the soil microbiome and its response to permafrost thaw in arctic tundra*" written by **Karl J. Romanowicz and George W. Kling** at the University of Michigan. Data stored in this repository include .csv files generated from the QIIME2 16S rRNA amplicon bioinformatic pipeline and used in all downstream statistical analyses and plotting. The RMarkdown documents with rendered statistical code are also provided. The original raw 16S rRNA sequencing data are stored in the Sequence Read Archive at NCBI (link provided below).
+This repository is associated with the manuscript "*Summer thaw duration is a strong predictor of the soil microbiome and its response to permafrost thaw in arctic tundra*" written by **Karl J. Romanowicz and George W. Kling** at the University of Michigan. Data stored in this repository include .csv files generated from the QIIME2 16S rRNA amplicon bioinformatic pipeline and used in all downstream statistical analyses and plotting. The RMarkdown documents with rendered statistical code are also provided. The original raw 16S rRNA sequencing data are stored in the Sequence Read Archive at NCBI (link provided below).
 
 **Links to Rendered Code:** 
 
