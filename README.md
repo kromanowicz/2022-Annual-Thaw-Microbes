@@ -17,9 +17,9 @@ This repository is associated with the manuscript "*Summer thaw duration is a st
 
 [Thaw Duration Correlation](https://rpubs.com/kjromano/AnnualThaw_CORR_Analysis)
 
-**NCBI BioProject:**
+**NCBI BioProject:** [PRJNA794857](https://www.ncbi.nlm.nih.gov/bioproject/?term=PRJNA794857) for raw .fastq files
 
-[PRJNA794857](https://www.ncbi.nlm.nih.gov/bioproject/?term=PRJNA794857) for raw .fastq files
+***Journal*** **Supplementary Material:** [https://journal](https://journal)
 
 **Manuscript Abstract:**
 
