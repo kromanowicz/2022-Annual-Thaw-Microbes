@@ -3,13 +3,13 @@
 ### [Karl J. Romanowicz](https://lsa.umich.edu/eeb/people/graduate-students/kjromano.html) & George W. Kling
 _____________________________________
 
-Romanowicz, KJ, Kling, GW. **(2022)** Summer thaw duration is a strong predictor of the soil microbiome and its response to permafrost thaw in Arctic tundra. ***Environmental Microbiology*** #(#): #-#. [https://doi.org/](https://doi.org/)
+Romanowicz, KJ, Kling, GW. (***In Review***) Summer thaw duration is a strong predictor of the soil microbiome and its response to permafrost thaw in Arctic tundra.
 
 ![ ](Data/Images/EnvMicro.png)
 
 **Links to Rendered Code:** 
 
-[16S Analysis](https://rpubs.com/kjromano/AnnualThaw_16S_Analysis)
+[16S Analysis](https://rpubs.com/kjromano/AnnualThaw_16S_SILVA_Analysis)
 
 [Soil Chemistry](https://rpubs.com/kjromano/AnnualThaw_SOIL_Analysis)
 
