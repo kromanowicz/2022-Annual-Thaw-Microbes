@@ -1,6 +1,6 @@
 ## Summer Thaw Duration is a Strong Predictor of the Soil Microbiome and its Response to Permafrost Thaw in Arctic Tundra
 
-### [Karl J. Romanowicz](https://lsa.umich.edu/eeb/people/graduate-students/kjromano.html) & George W. Kling
+### [Karl J. Romanowicz](https://kromanowicz.github.io/) & George W. Kling
 _____________________________________
 
 Romanowicz KJ, Kling GW. (***In Review***) Summer thaw duration is a strong predictor of the soil microbiome and its response to permafrost thaw in Arctic tundra.
