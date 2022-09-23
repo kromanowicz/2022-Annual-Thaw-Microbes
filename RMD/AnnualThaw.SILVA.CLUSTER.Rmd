@@ -1,0 +1,530 @@
+---
+title: "Microbial Response to Intermittent Permafrost Thaw -- Clustering"
+author: 'Authors: [Karl J. Romanowicz](https://kromanowicz.github.io/) and George W. Kling'
+output:
+  html_notebook:
+    theme: spacelab
+    toc: yes
+    toc_depth: 5
+    toc_float:
+      collapsed: yes
+      smooth_scroll: yes
+  html_document:
+    toc: yes
+    toc_depth: '5'
+    df_print: paged
+  pdf_document:
+    toc: yes
+    toc_depth: '5'
+---
+
+__________________________________________________
+
+**R Notebook:** <font color="green">Provides reproducible analysis for **Hierarchical Clustering** data in the following manuscript:</font>
+
+**Citation:** Romanowicz KJ and Kling GW. (***In Press***) Summer thaw duration is a strong predictor of the soil microbiome and its response to permafrost thaw in arctic tundra. ***Environmental Microbiology***. [https://doi.org/10.1111/1462-2920.16218](https://doi.org/10.1111/1462-2920.16218)
+
+**GitHub Repository:** [https://github.com/kromanowicz/2022-Annual-Thaw-Microbes](https://github.com/kromanowicz/2022-Annual-Thaw-Microbes)
+
+**NCBI BioProject:** [https://www.ncbi.nlm.nih.gov/bioproject/?term=PRJNA794857](https://www.ncbi.nlm.nih.gov/bioproject/?term=PRJNA794857)
+
+**Accepted for Publication:** <font color="green">22 September 2022</font> *Environmental Microbiology*
+
+# Experiment
+
+This R Notebook provides complete reproducibility of the data analysis presented in ***"Summer thaw duration is a strong predictor of the soil microbiome and its response to permafrost thaw in arctic tundra"*** by Romanowicz and Kling.
+
+<font color="green">This pipeline uses amplicon sequence variants (ASVs) generated from 16S rRNA gene sequences in hierarchical clustering analysis to determine statistically significant clusters based on soil depth and shared taxonomy.</font>
+
+```{r setup, include=FALSE}
+# Set global options for notebook
+knitr::opts_knit$set(root.dir = normalizePath("~/Desktop/TundraPro18"))
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r message=FALSE, results='hide', warning=FALSE}
+# Make a vector of required packages
+required.packages <- c("corrr","data.table","devtools","dplyr","forcats","ggalluvial","ggdendro","ggplot2","ggpubr","grid","gridExtra","knitr","magrittr","microeco","patchwork","pheatmap","pvclust","qiime2R","RColorBrewer","tidyr","UpSetR","vegan")
+
+# Load required packages
+lapply(required.packages, library, character.only = TRUE)
+```
+
+```{r include=FALSE}
+# set.seed is used to fix the random number generation to make the results repeatable
+set.seed(123)
+```
+
+# Hierarchical Clustering
+
+This analysis includes heatmaps of z-scored relative abundance taxonomic data and hierarchical clustering by soil depth and taxa using pvclust and 10,000 bootstrap iterations.
+
+## Toolik MAT
+
+Import mean abundance of taxa by depth for TTT heatmap
+```{r}
+asv.taxa.ttt.mean <- read.csv("QIIME/SILVA/R_Data/taxa.mean.ttt.csv")
+
+colnames(asv.taxa.ttt.mean)<-c("Phylum","0-10","10-20","20-30","30-40","40-50","50-60","60-70","70-80","80-90")
+
+# Convert the first column (Phylum) into rownames
+rownames(asv.taxa.ttt.mean) <- asv.taxa.ttt.mean$Phylum
+asv.taxa.ttt.mean<-as.data.frame(asv.taxa.ttt.mean[-1])
+
+# Convert dataframe into a matrix for heatmap
+asv.taxa.ttt.mean<-as.matrix(asv.taxa.ttt.mean)
+
+# Scale matrix values to generate Z-scores
+asv.taxa.ttt.mean<-scale(t(asv.taxa.ttt.mean))
+
+# Specify RColorBrewer custom color palette
+col <- colorRampPalette(brewer.pal(10, "RdYlBu"))(256)
+```
+
+```{r}
+# Pheatmap
+asv.taxa.ttt.mean.pheatmap <- pheatmap(asv.taxa.ttt.mean, clustering_method = "average", cluster_cols = TRUE, cluster_rows = TRUE, cutree_cols = 3, cutree_rows = 3, angle_col=45, fontsize_col=8, legend = FALSE)
+
+asv.taxa.ttt.mean.pheatmap.v2 <- pheatmap(asv.taxa.ttt.mean, clustering_method = "average", cluster_cols = TRUE, cluster_rows = FALSE, cutree_cols = 3, gaps_row = c(2, 4), angle_col=45, fontsize_col=10, legend = FALSE, cellheight=16, cellwidth=18)
+
+#Export as .eps (width:650, height:600; "ttt.heat.silva.eps")
+```
+
+### Soil Depth pvclust
+
+TTT Soil Depth pvclust Analysis
+```{r}
+asv.taxa.ttt.mean.pvclust <- read.csv("QIIME/SILVA/R_Data/taxa.mean.ttt.csv")
+
+colnames(asv.taxa.ttt.mean.pvclust)<-c("Phylum","0-10","10-20","20-30","30-40","40-50","50-60","60-70","70-80","80-90")
+
+# Convert the first column (Phylum) into rownames
+rownames(asv.taxa.ttt.mean.pvclust) <- asv.taxa.ttt.mean.pvclust$Phylum
+asv.taxa.ttt.mean.pvclust<-as.data.frame(asv.taxa.ttt.mean.pvclust[-1])
+
+# Scale data
+asv.taxa.ttt.mean.pvclust<-scale(asv.taxa.ttt.mean.pvclust)
+```
+
+```{r}
+result.10k.ttt <- pvclust(asv.taxa.ttt.mean.pvclust, method.dist="cor", method.hclust="average", nboot=10000, parallel=TRUE)
+
+plot(result.10k.ttt)
+pvrect(result.10k.ttt, alpha=0.95)
+```
+
+### Taxonomy pvclust
+
+TTT Soil Taxa pvclust Analysis
+```{r}
+asv.depth.ttt.mean.pvclust <- read.csv("QIIME/SILVA/R_Data/taxa.mean.ttt.cols.csv")
+
+# Convert the first column (Phylum) into rownames
+rownames(asv.depth.ttt.mean.pvclust) <- asv.depth.ttt.mean.pvclust$Phylum
+asv.depth.ttt.mean.pvclust<-as.data.frame(asv.depth.ttt.mean.pvclust[-1])
+
+# Scale data
+asv.depth.ttt.mean.pvclust<-scale(asv.depth.ttt.mean.pvclust)
+```
+
+```{r}
+result.10k.ttt.taxa <- pvclust(asv.depth.ttt.mean.pvclust, method.dist="cor", method.hclust="average", nboot=10000, parallel=TRUE)
+
+plot(result.10k.ttt.taxa)
+pvrect(result.10k.ttt.taxa, alpha=0.95)
+```
+
+## Toolik WS
+
+Import mean abundance of taxa by depth for TWS heatmap
+```{r}
+asv.taxa.tws.mean <- read.csv("QIIME/SILVA/R_Data/taxa.mean.tws.csv")
+
+colnames(asv.taxa.tws.mean)<-c("Phylum","0-10","10-20","20-30","30-40","40-50","50-60","60-70","70-80","80-90")
+
+# Convert the first column (Phylum) into rownames
+rownames(asv.taxa.tws.mean) <- asv.taxa.tws.mean$Phylum
+asv.taxa.tws.mean<-as.data.frame(asv.taxa.tws.mean[-1])
+
+# Convert dataframe into a matrix for heatmap
+asv.taxa.tws.mean<-as.matrix(asv.taxa.tws.mean)
+
+# Scale matrix values to generate Z-scores
+asv.taxa.tws.mean<-scale(t(asv.taxa.tws.mean))
+
+# Specify RColorBrewer custom color palette
+col <- colorRampPalette(brewer.pal(10, "RdYlBu"))(256)
+```
+
+```{r}
+# Pheatmap
+asv.taxa.tws.mean.pheatmap <- pheatmap(asv.taxa.tws.mean, clustering_method = "average", cluster_cols = TRUE, cluster_rows = TRUE, cutree_cols = 3, cutree_rows = 3, angle_col=45, fontsize_col=8, legend = FALSE)
+
+asv.taxa.tws.mean.pheatmap.v2 <- pheatmap(asv.taxa.tws.mean, clustering_method = "average", cluster_cols = TRUE, cluster_rows = FALSE, cutree_cols = 3, gaps_row = c(1, 5), angle_col=45, fontsize_col=10, legend = FALSE, cellheight=16, cellwidth=18)
+
+#Export as .eps (width:650, height:600; "tws.heat.silva.eps")
+```
+
+### Soil Depth pvclust
+
+TWS pvclust analysis
+```{r}
+asv.taxa.tws.mean.pvclust <- read.csv("QIIME/SILVA/R_Data/taxa.mean.tws.csv")
+
+colnames(asv.taxa.tws.mean.pvclust)<-c("Phylum","0-10","10-20","20-30","30-40","40-50","50-60","60-70","70-80","80-90")
+
+# Convert the first column (Phylum) into rownames
+rownames(asv.taxa.tws.mean.pvclust) <- asv.taxa.tws.mean.pvclust$Phylum
+asv.taxa.tws.mean.pvclust<-as.data.frame(asv.taxa.tws.mean.pvclust[-1])
+
+# Scale data
+asv.taxa.tws.mean.pvclust<-scale(asv.taxa.tws.mean.pvclust)
+```
+
+```{r}
+result.10k.tws <- pvclust(asv.taxa.tws.mean.pvclust, method.dist="cor", method.hclust="average", nboot=10000, parallel=TRUE)
+
+plot(result.10k.tws)
+pvrect(result.10k.tws, alpha=0.95)
+```
+
+### Taxonomy pvclust
+
+TWS Soil Taxa pvclust Analysis
+```{r}
+asv.depth.tws.mean.pvclust <- read.csv("QIIME/SILVA/R_Data/taxa.mean.tws.cols.csv")
+
+# Convert the first column (Phylum) into rownames
+rownames(asv.depth.tws.mean.pvclust) <- asv.depth.tws.mean.pvclust$Phylum
+asv.depth.tws.mean.pvclust<-as.data.frame(asv.depth.tws.mean.pvclust[-1])
+
+# Scale data
+asv.depth.tws.mean.pvclust<-scale(asv.depth.tws.mean.pvclust)
+```
+
+```{r}
+result.10k.tws.taxa <- pvclust(asv.depth.tws.mean.pvclust, method.dist="cor", method.hclust="average", nboot=10000, parallel=TRUE)
+
+plot(result.10k.tws.taxa)
+pvrect(result.10k.tws.taxa, alpha=0.95)
+```
+
+## Imnavait MAT
+
+Import mean abundance of taxa by depth for ITT heatmap
+```{r}
+asv.taxa.itt.mean <- read.csv("QIIME/SILVA/R_Data/taxa.mean.itt.csv")
+
+colnames(asv.taxa.itt.mean)<-c("Phylum","0-10","10-20","20-30","30-40","40-50","50-60","60-70")
+
+# Convert the first column (Phylum) into rownames
+rownames(asv.taxa.itt.mean) <- asv.taxa.itt.mean$Phylum
+asv.taxa.itt.mean<-as.data.frame(asv.taxa.itt.mean[-1])
+
+# Convert dataframe into a matrix for heatmap
+asv.taxa.itt.mean<-as.matrix(asv.taxa.itt.mean)
+
+# Scale matrix values to generate Z-scores
+asv.taxa.itt.mean<-scale(t(asv.taxa.itt.mean))
+
+# Specify RColorBrewer custom color palette
+col <- colorRampPalette(brewer.pal(10, "RdYlBu"))(256)
+```
+
+```{r}
+# Pheatmap
+asv.taxa.itt.mean.pheatmap <- pheatmap(asv.taxa.itt.mean, clustering_method = "average", cluster_cols = TRUE, cluster_rows = TRUE, cutree_cols = 3, cutree_rows = 3, angle_col=45, fontsize_col=8, legend = FALSE)
+
+asv.taxa.itt.mean.pheatmap.v2 <- pheatmap(asv.taxa.itt.mean, clustering_method = "average", cluster_cols = TRUE, cluster_rows = FALSE, cutree_cols = 3, gaps_row = c(2, 4), angle_col=45, fontsize_col=10, legend = FALSE, cellheight=16, cellwidth=17)
+
+#Export as .eps (width:650, height:600; "itt.heat.silva.eps")
+```
+
+### Soil Depth pvclust
+
+ITT pvclust analysis
+```{r}
+asv.taxa.itt.mean.pvclust <- read.csv("QIIME/SILVA/R_Data/taxa.mean.itt.csv")
+
+colnames(asv.taxa.itt.mean.pvclust)<-c("Phylum","0-10","10-20","20-30","30-40","40-50","50-60","60-70")
+
+# Convert the first column (Phylum) into rownames
+rownames(asv.taxa.itt.mean.pvclust) <- asv.taxa.itt.mean.pvclust$Phylum
+asv.taxa.itt.mean.pvclust<-as.data.frame(asv.taxa.itt.mean.pvclust[-1])
+
+# Scale data
+asv.taxa.itt.mean.pvclust<-scale(asv.taxa.itt.mean.pvclust)
+```
+
+```{r}
+result.10k.itt <- pvclust(asv.taxa.itt.mean.pvclust, method.dist="cor", method.hclust="average", nboot=10000, parallel=TRUE)
+
+plot(result.10k.itt)
+pvrect(result.10k.itt, alpha=0.95)
+```
+
+### Taxonomy pvclust
+
+ITT Soil Taxa pvclust Analysis
+```{r}
+asv.depth.itt.mean.pvclust <- read.csv("QIIME/SILVA/R_Data/taxa.mean.itt.cols.csv")
+
+# Convert the first column (Phylum) into rownames
+rownames(asv.depth.itt.mean.pvclust) <- asv.depth.itt.mean.pvclust$Phylum
+asv.depth.itt.mean.pvclust<-as.data.frame(asv.depth.itt.mean.pvclust[-1])
+
+# Scale data
+asv.depth.itt.mean.pvclust<-scale(asv.depth.itt.mean.pvclust)
+```
+
+```{r}
+result.10k.itt.taxa <- pvclust(asv.depth.itt.mean.pvclust, method.dist="cor", method.hclust="average", nboot=10000, parallel=TRUE)
+
+plot(result.10k.itt.taxa)
+pvrect(result.10k.itt.taxa, alpha=0.95)
+```
+
+## Imnavait WS
+
+Import mean abundance of taxa by depth for IWS heatmap
+```{r}
+asv.taxa.iws.mean <- read.csv("QIIME/SILVA/R_Data/taxa.mean.iws.csv")
+
+colnames(asv.taxa.iws.mean)<-c("Phylum","0-10","10-20","20-30","30-40","40-50","50-60","60-70","70-80","80-90","90-100")
+
+# Convert the first column (Phylum) into rownames
+rownames(asv.taxa.iws.mean) <- asv.taxa.iws.mean$Phylum
+asv.taxa.iws.mean<-as.data.frame(asv.taxa.iws.mean[-1])
+
+# Convert dataframe into a matrix for heatmap
+asv.taxa.iws.mean<-as.matrix(asv.taxa.iws.mean)
+
+# Scale matrix values to generate Z-scores
+asv.taxa.iws.mean<-scale(t(asv.taxa.iws.mean))
+
+# Specify RColorBrewer custom color palette
+col <- colorRampPalette(brewer.pal(10, "RdYlBu"))(256)
+```
+
+```{r}
+# Pheatmap
+asv.taxa.iws.mean.pheatmap <- pheatmap(asv.taxa.iws.mean, clustering_method = "average", cluster_cols = TRUE, cluster_rows = TRUE, cutree_cols = 2, cutree_rows = 4, angle_col=45, fontsize_col=8, legend = FALSE)
+
+asv.taxa.iws.mean.pheatmap.v2 <- pheatmap(asv.taxa.iws.mean, clustering_method = "average", cluster_cols = TRUE, cluster_rows = FALSE, cutree_cols = 3, gaps_row = c(1, 4, 6), angle_col=45, fontsize_col=10, legend = FALSE, cellheight=14, cellwidth=17)
+
+#Export as .eps (width:650, height:600; "iws.heat.silva.eps")
+```
+
+### Soil Depth pvclust
+
+IWS pvclust analysis
+```{r}
+asv.taxa.iws.mean.pvclust <- read.csv("QIIME/SILVA/R_Data/taxa.mean.iws.csv")
+
+colnames(asv.taxa.iws.mean.pvclust)<-c("Phylum","0-10","10-20","20-30","30-40","40-50","50-60","60-70","70-80","80-90","90-100")
+
+# Convert the first column (Phylum) into rownames
+rownames(asv.taxa.iws.mean.pvclust) <- asv.taxa.iws.mean.pvclust$Phylum
+asv.taxa.iws.mean.pvclust<-as.data.frame(asv.taxa.iws.mean.pvclust[-1])
+
+# Scale data
+asv.taxa.iws.mean.pvclust<-scale(asv.taxa.iws.mean.pvclust)
+```
+
+```{r}
+result.10k.iws <- pvclust(asv.taxa.iws.mean.pvclust, method.dist="cor", method.hclust="average", nboot=10000, parallel=TRUE)
+
+plot(result.10k.iws)
+pvrect(result.10k.iws, alpha=0.9)
+```
+
+### Taxonomy pvclust
+
+IWS Soil Taxa pvclust Analysis
+```{r}
+asv.depth.iws.mean.pvclust <- read.csv("QIIME/SILVA/R_Data/taxa.mean.iws.cols.csv")
+
+# Convert the first column (Phylum) into rownames
+rownames(asv.depth.iws.mean.pvclust) <- asv.depth.iws.mean.pvclust$Phylum
+asv.depth.iws.mean.pvclust<-as.data.frame(asv.depth.iws.mean.pvclust[-1])
+
+# Scale data
+asv.depth.iws.mean.pvclust<-scale(asv.depth.iws.mean.pvclust)
+```
+
+```{r}
+result.10k.iws.taxa <- pvclust(asv.depth.iws.mean.pvclust, method.dist="cor", method.hclust="average", nboot=10000, parallel=TRUE)
+```
+
+```{r}
+plot(result.10k.iws.taxa)
+pvrect(result.10k.iws.taxa, alpha=0.95)
+```
+
+## Sagwon MAT
+
+Import mean abundance of taxa by depth for STT heatmap
+```{r}
+asv.taxa.stt.mean <- read.csv("QIIME/SILVA/R_Data/taxa.mean.stt.csv")
+
+colnames(asv.taxa.stt.mean)<-c("Phylum","0-10","10-20","20-30","30-40","40-50","50-60","60-70","70-80","80-90")
+
+# Convert the first column (Phylum) into rownames
+rownames(asv.taxa.stt.mean) <- asv.taxa.stt.mean$Phylum
+asv.taxa.stt.mean<-as.data.frame(asv.taxa.stt.mean[-1])
+
+# Convert dataframe into a matrix for heatmap
+asv.taxa.stt.mean<-as.matrix(asv.taxa.stt.mean)
+
+# Scale matrix values to generate Z-scores
+asv.taxa.stt.mean<-scale(t(asv.taxa.stt.mean))
+
+# Specify RColorBrewer custom color palette
+col <- colorRampPalette(brewer.pal(10, "RdYlBu"))(256)
+```
+
+```{r}
+# Pheatmap
+asv.taxa.stt.mean.pheatmap <- pheatmap(asv.taxa.stt.mean, clustering_method = "complete", cluster_cols = TRUE, cluster_rows = TRUE, cutree_cols = 2, cutree_rows = 2, angle_col=45, fontsize_col=8, legend = FALSE)
+
+asv.taxa.stt.mean.pheatmap.v2 <- pheatmap(asv.taxa.stt.mean, clustering_method = "average", cluster_cols = TRUE, cluster_rows = FALSE, cutree_cols = 3, gaps_row = c(3,5), angle_col=45, fontsize_col=10, legend = FALSE, cellheight=16, cellwidth=18)
+
+#Export as .eps (width:650, height:600; "stt.heat.silva.eps")
+```
+
+### Soil Depth pvclust
+
+STT pvclust analysis
+```{r}
+asv.taxa.stt.mean.pvclust <- read.csv("QIIME/SILVA/R_Data/taxa.mean.stt.csv")
+
+colnames(asv.taxa.stt.mean.pvclust)<-c("Phylum","0-10","10-20","20-30","30-40","40-50","50-60","60-70","70-80","80-90")
+
+# Convert the first column (Phylum) into rownames
+rownames(asv.taxa.stt.mean.pvclust) <- asv.taxa.stt.mean.pvclust$Phylum
+asv.taxa.stt.mean.pvclust<-as.data.frame(asv.taxa.stt.mean.pvclust[-1])
+
+# Scale data
+asv.taxa.stt.mean.pvclust<-scale(asv.taxa.stt.mean.pvclust)
+```
+
+```{r}
+result.10k.stt <- pvclust(asv.taxa.stt.mean.pvclust, method.dist="cor", method.hclust="average", nboot=10000, parallel=TRUE)
+
+plot(result.10k.stt)
+pvrect(result.10k.stt, alpha=0.95)
+```
+
+### Taxonomy pvclust
+
+STT Soil Taxa pvclust Analysis
+```{r}
+asv.depth.stt.mean.pvclust <- read.csv("QIIME/SILVA/R_Data/taxa.mean.stt.cols.csv")
+
+# Convert the first column (Phylum) into rownames
+rownames(asv.depth.stt.mean.pvclust) <- asv.depth.stt.mean.pvclust$Phylum
+asv.depth.stt.mean.pvclust<-as.data.frame(asv.depth.stt.mean.pvclust[-1])
+
+# Scale data
+asv.depth.stt.mean.pvclust<-scale(asv.depth.stt.mean.pvclust)
+```
+
+```{r}
+result.10k.stt.taxa <- pvclust(asv.depth.stt.mean.pvclust, method.dist="cor", method.hclust="average", nboot=10000, parallel=TRUE)
+
+plot(result.10k.stt.taxa)
+pvrect(result.10k.stt.taxa, alpha=0.95)
+```
+
+## Sagwon WS
+
+Import mean abundance of taxa by depth for SWS heatmap
+```{r}
+asv.taxa.sws.mean <- read.csv("QIIME/SILVA/R_Data/taxa.mean.sws.csv")
+
+colnames(asv.taxa.sws.mean)<-c("Phylum","0-10","10-20","20-30","30-40","40-50","50-60","60-70")
+
+# Convert the first column (Phylum) into rownames
+rownames(asv.taxa.sws.mean) <- asv.taxa.sws.mean$Phylum
+asv.taxa.sws.mean<-as.data.frame(asv.taxa.sws.mean[-1])
+
+# Convert dataframe into a matrix for heatmap
+asv.taxa.sws.mean<-as.matrix(asv.taxa.sws.mean)
+
+# Scale matrix values to generate Z-scores
+asv.taxa.sws.mean<-scale(t(asv.taxa.sws.mean))
+
+# Specify RColorBrewer custom color palette
+col <- colorRampPalette(brewer.pal(10, "RdYlBu"))(256)
+```
+
+```{r}
+# Pheatmap
+asv.taxa.sws.mean.pheatmap <- pheatmap(asv.taxa.sws.mean, clustering_method = "average", cluster_cols = TRUE, cluster_rows = TRUE, cutree_cols = 2, cutree_rows = 2, angle_col=45, fontsize_col=8, legend = FALSE)
+
+asv.taxa.sws.mean.pheatmap.v2 <- pheatmap(asv.taxa.sws.mean, clustering_method = "average", cluster_cols = TRUE, cluster_rows = FALSE, cutree_cols = 2, gaps_row = 4, angle_col=45, fontsize_col=10, legend = FALSE, cellheight=16, cellwidth=16)
+
+#Export as .eps (width:650, height:600; "sws.heat.silva.eps")
+```
+
+### Soil Depth pvclust
+
+SWS pvclust analysis
+```{r}
+asv.taxa.sws.mean.pvclust <- read.csv("QIIME/SILVA/R_Data/taxa.mean.sws.csv")
+
+colnames(asv.taxa.sws.mean.pvclust)<-c("Phylum","0-10","10-20","20-30","30-40","40-50","50-60","60-70")
+
+# Convert the first column (Phylum) into rownames
+rownames(asv.taxa.sws.mean.pvclust) <- asv.taxa.sws.mean.pvclust$Phylum
+asv.taxa.sws.mean.pvclust<-as.data.frame(asv.taxa.sws.mean.pvclust[-1])
+
+# Scale data
+asv.taxa.sws.mean.pvclust<-scale(asv.taxa.sws.mean.pvclust)
+```
+
+```{r}
+result.10k.sws <- pvclust(asv.taxa.sws.mean.pvclust, method.dist="cor", method.hclust="average", nboot=10000, parallel=TRUE)
+
+plot(result.10k.sws)
+pvrect(result.10k.sws, alpha=0.95)
+```
+
+### Taxonomy pvclust
+
+SWS Soil Taxa pvclust Analysis
+```{r}
+asv.depth.sws.mean.pvclust <- read.csv("QIIME/SILVA/R_Data/taxa.mean.sws.cols.csv")
+
+# Convert the first column (Phylum) into rownames
+rownames(asv.depth.sws.mean.pvclust) <- asv.depth.sws.mean.pvclust$Phylum
+asv.depth.sws.mean.pvclust<-as.data.frame(asv.depth.sws.mean.pvclust[-1])
+
+# Scale data
+asv.depth.sws.mean.pvclust<-scale(asv.depth.sws.mean.pvclust)
+```
+
+```{r}
+result.10k.sws.taxa <- pvclust(asv.depth.sws.mean.pvclust, method.dist="cor", method.hclust="average", nboot=10000, parallel=TRUE)
+
+plot(result.10k.sws.taxa)
+pvrect(result.10k.sws.taxa, alpha=0.95)
+```
+
+```{r echo=FALSE, eval=FALSE}
+# For calling plots and saving as .eps (width: 525; height: 650)
+asv.taxa.ttt.mean.pheatmap.v2
+asv.taxa.tws.mean.pheatmap.v2
+asv.taxa.itt.mean.pheatmap.v2
+asv.taxa.iws.mean.pheatmap.v2
+asv.taxa.stt.mean.pheatmap.v2
+asv.taxa.sws.mean.pheatmap.v2
+```
+
+
+# Reproducibility
+
+The session information is provided for full reproducibility.
+```{r}
+devtools::session_info()
+```
